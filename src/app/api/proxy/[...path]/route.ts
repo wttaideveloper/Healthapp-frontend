@@ -1,5 +1,7 @@
-const BACKEND_API_BASE_URL = (process.env.BACKEND_API_BASE_URL ?? "http://52.66.210.205/api/v1").replace(/\/$/, "");
-// const BACKEND_API_BASE_URL = (process.env.BACKEND_API_BASE_URL ?? "http://localhost:8091/api/v1").replace(/\/$/, "");
+const rawBackendBaseUrl = process.env.BACKEND_API_BASE_URL ?? "http://localhost:8091/api/v1";
+const BACKEND_API_BASE_URL = rawBackendBaseUrl.endsWith("/api/v1")
+  ? rawBackendBaseUrl.replace(/\/$/, "")
+  : `${rawBackendBaseUrl.replace(/\/$/, "")}/api/v1`;
 
 export const dynamic = "force-dynamic";
 

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HealthAge Admin",
-  description: "Admin dashboard for HealthAge organization licenses",
+  description: "Admin dashboard for HealthAge workspace entitlements",
 };
 
 export default function RootLayout({

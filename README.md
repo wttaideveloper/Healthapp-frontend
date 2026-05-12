@@ -16,6 +16,13 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Environment Notes
+
+- `First Admin Bootstrap` and `Promote Existing User To Admin` are available only when `NEXT_PUBLIC_APP_ENV=development` (or when `NEXT_PUBLIC_VERCEL_ENV`/`NODE_ENV` resolves to development).
+- In preview and production these admin-bootstrap tools are hidden and blocked client-side.
+- Set `BACKEND_API_BASE_URL` to your backend root. If it does not end with `/api/v1`, the proxy appends it automatically.
+- Frontend API requests always go through `src/app/api/proxy/[...path]/route.ts` and pass `Authorization` + `x-bootstrap-token` headers when present.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
