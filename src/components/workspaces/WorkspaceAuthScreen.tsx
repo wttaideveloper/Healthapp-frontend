@@ -6,6 +6,7 @@ import { ToastMessage } from "@/components/ui/ToastMessage";
 import { callApi } from "@/lib/admin/api";
 
 type ToastState = { type: "success" | "error"; message: string } | null;
+const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9 ]*$/;
 
 export function WorkspaceAuthScreen() {
     const [name, setName] = useState("");
@@ -20,10 +21,15 @@ export function WorkspaceAuthScreen() {
         setToast(null);
 
         try {
+            const normalizedName = name.trim();
+            if (!NAME_PATTERN.test(normalizedName)) {
+                throw new Error("Name must start with a letter and can include letters, numbers, and spaces.");
+            }
+
             await callApi("auth/register", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, email, password }),
+                body: JSON.stringify({ name: normalizedName, email, password }),
             });
 
             setToast({ type: "success", message: "Registered successfully. Your account requires admin approval before you can sign in." });
@@ -50,6 +56,8 @@ export function WorkspaceAuthScreen() {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Full name"
+                        pattern="[A-Za-z][A-Za-z0-9 ]*"
+                        title="Name must start with a letter and can include letters, numbers, and spaces."
                         className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
                         required
                     />

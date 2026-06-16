@@ -34,6 +34,7 @@ function isWorkspaceManager(entitlement: EntitlementResponse | null): boolean {
 }
 
 export default function Home() {
+  const namePattern = /^[A-Za-z][A-Za-z0-9 ]*$/;
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [entitlement, setEntitlement] = useState<EntitlementResponse | null>(null);
@@ -41,6 +42,9 @@ export default function Home() {
 
   const [loginEmail, setLoginEmail] = useState("admin@conference.org");
   const [loginPassword, setLoginPassword] = useState("Password123!");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
 
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [bootstrapName, setBootstrapName] = useState("Platform Admin");
@@ -286,6 +290,36 @@ export default function Home() {
     }
   }
 
+  async function onResetPassword(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsBusy(true);
+    try {
+      if (!/^\d{6}$/.test(resetOtp)) {
+        throw new Error("OTP must be exactly 6 digits.");
+      }
+      if (resetNewPassword.length < 8 || resetNewPassword.length > 128) {
+        throw new Error("Password must be 8 to 128 characters.");
+      }
+
+      const response = await callApi<{ ok: boolean; message: string }>("auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: resetEmail,
+          otp: resetOtp,
+          newPassword: resetNewPassword,
+        }),
+      });
+      showToast("success", response.message || "Password updated successfully.");
+      setResetOtp("");
+      setResetNewPassword("");
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to reset password");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function onBootstrapAdmin(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!showDevAdminBootstrapTools) {
@@ -478,13 +512,18 @@ export default function Home() {
     if (!token) return;
     setIsBusy(true);
     try {
+      const normalizedName = newAdminName.trim();
+      if (!namePattern.test(normalizedName)) {
+        throw new Error("Name must start with a letter and can include letters, numbers, and spaces.");
+      }
+
       await callApi(
         "admin/users/admin",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: newAdminName,
+            name: normalizedName,
             email: newAdminEmail,
             password: newAdminPassword,
           }),

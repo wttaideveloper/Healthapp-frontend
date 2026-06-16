@@ -115,9 +115,8 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 key={item.key}
                 type="button"
                 onClick={() => props.setActiveView(item.key)}
-                className={`shrink-0 rounded-xl px-3 py-2 text-left text-sm transition ${
-                  props.activeView === item.key ? "bg-foreground text-white" : "border border-border bg-white hover:bg-muted"
-                }`}
+                className={`shrink-0 rounded-xl px-3 py-2 text-left text-sm transition ${props.activeView === item.key ? "bg-foreground text-white" : "border border-border bg-white hover:bg-muted"
+                  }`}
               >
                 {item.label}
               </button>
@@ -197,7 +196,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
                       <option value="">Select workspace</option>
                       {props.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
                     </select>
-                    <input value={props.updateOwnerEmail} onChange={(e) => props.setUpdateOwnerEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Owner email" type="email" />
+                    {/* <input value={props.updateOwnerEmail} onChange={(e) => props.setUpdateOwnerEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Owner email" type="email" /> */}
                     <input value={props.updateSeatLimit} onChange={(e) => props.setUpdateSeatLimit(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Seat limit" type="number" min={1} />
                     <input value={props.updatePlan} onChange={(e) => props.setUpdatePlan(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Plan" />
                     <select value={props.updateSubscriptionStatus} onChange={(e) => props.setUpdateSubscriptionStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
@@ -304,7 +303,15 @@ export function AdminDashboard(props: AdminDashboardProps) {
               <form className="rounded-3xl border border-border bg-card p-5 shadow-sm" onSubmit={props.onCreateAdmin}>
                 <h2 className="text-lg font-semibold">Create Admin User</h2>
                 <div className="mt-4 grid gap-3 md:grid-cols-4">
-                  <input value={props.newAdminName} onChange={(e) => props.setNewAdminName(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Admin name" required />
+                  <input
+                    value={props.newAdminName}
+                    onChange={(e) => props.setNewAdminName(e.target.value)}
+                    className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
+                    placeholder="Admin name"
+                    pattern="[A-Za-z][A-Za-z0-9 ]*"
+                    title="Name must start with a letter and can include letters, numbers, and spaces."
+                    required
+                  />
                   <input value={props.newAdminEmail} onChange={(e) => props.setNewAdminEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Admin email" type="email" required />
                   <PasswordInput value={props.newAdminPassword} onChange={(e) => props.setNewAdminPassword(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Password" required />
                   <button type="submit" disabled={props.isBusy} className="rounded-xl bg-accent-2 px-4 py-2 text-sm font-semibold text-foreground disabled:opacity-60">Create Admin</button>
