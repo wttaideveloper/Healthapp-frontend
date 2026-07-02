@@ -257,12 +257,11 @@ export default function Home() {
         body: JSON.stringify({ email: loginEmail, password: loginPassword }),
       });
 
-      // Verify entitlements: only platform admins or workspace admins (owner/admin) may sign in
+      // Login succeeds only for platform admins or active workspace owner/admin members.
       let entitlementResponse = null;
       try {
         entitlementResponse = await callApi<EntitlementResponse>("entitlements/me", { method: "GET" }, data.accessToken);
       } catch (e) {
-        // treat failure to fetch entitlements as no entitlement
         entitlementResponse = null;
       }
 

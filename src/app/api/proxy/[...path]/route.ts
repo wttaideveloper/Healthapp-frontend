@@ -1,4 +1,5 @@
 const rawBackendBaseUrl = process.env.BACKEND_API_BASE_URL ?? "http://localhost:8091/api/v1";
+// Allow BACKEND_API_BASE_URL to be either the backend root or the versioned API root.
 const BACKEND_API_BASE_URL = rawBackendBaseUrl.endsWith("/api/v1")
   ? rawBackendBaseUrl.replace(/\/$/, "")
   : `${rawBackendBaseUrl.replace(/\/$/, "")}/api/v1`;
@@ -24,6 +25,7 @@ async function proxyRequest(request: Request, { params }: Params): Promise<Respo
   const authorization = request.headers.get("authorization");
   const bootstrapToken = request.headers.get("x-bootstrap-token");
 
+  // Forward only the headers this admin app intentionally exposes to the backend.
   if (contentType) headers.set("content-type", contentType);
   if (authorization) headers.set("authorization", authorization);
   if (bootstrapToken) headers.set("x-bootstrap-token", bootstrapToken);

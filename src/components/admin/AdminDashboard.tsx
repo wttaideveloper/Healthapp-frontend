@@ -196,7 +196,6 @@ export function AdminDashboard(props: AdminDashboardProps) {
                       <option value="">Select workspace</option>
                       {props.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
                     </select>
-                    {/* <input value={props.updateOwnerEmail} onChange={(e) => props.setUpdateOwnerEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Owner email" type="email" /> */}
                     <input value={props.updateSeatLimit} onChange={(e) => props.setUpdateSeatLimit(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Seat limit" type="number" min={1} />
                     <input value={props.updatePlan} onChange={(e) => props.setUpdatePlan(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Plan" />
                     <select value={props.updateSubscriptionStatus} onChange={(e) => props.setUpdateSubscriptionStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">

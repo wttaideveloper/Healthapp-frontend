@@ -4,6 +4,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function unwrapPayload<T>(payload: unknown): T {
   if (!isObject(payload)) return payload as T;
+  // The backend may wrap successful responses depending on the endpoint.
   if ("data" in payload) return payload.data as T;
   if ("result" in payload) return payload.result as T;
   return payload as T;
