@@ -42,7 +42,18 @@ export type IconName =
   | "calendar"
   | "filter"
   | "ban"
-  | "badgeCheck";
+  | "badgeCheck"
+  | "chart"
+  | "pieChart"
+  | "table"
+  | "trendUp"
+  | "trendDown"
+  | "minus"
+  | "download"
+  | "gauge"
+  | "scan"
+  | "sparkles"
+  | "history";
 
 const paths: Record<IconName, React.ReactNode> = {
   users: (
@@ -182,6 +193,70 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <path d="M12 2 14.2 4.4l3.2-.5.6 3.2 2.9 1.5-1.5 2.9 1.5 2.9-2.9 1.5-.6 3.2-3.2-.5L12 22l-2.2-2.4-3.2.5-.6-3.2L3.1 15.3l1.5-2.9-1.5-2.9L6 8l.6-3.2 3.2.5L12 2Z" />
       <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  chart: (
+    <>
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <path d="m7 15 4-5 3 3 4-6" />
+    </>
+  ),
+  pieChart: (
+    <>
+      <path d="M21 12A9 9 0 1 1 12 3v9h9Z" />
+      <path d="M16 3.5A9 9 0 0 1 20.5 8H16V3.5Z" />
+    </>
+  ),
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M9 10v10" />
+    </>
+  ),
+  trendUp: (
+    <>
+      <path d="m3 17 6-6 4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </>
+  ),
+  trendDown: (
+    <>
+      <path d="m3 7 6 6 4-4 8 8" />
+      <path d="M15 17h6v-6" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 11 5 5 5-5" />
+      <path d="M4 20h16" />
+    </>
+  ),
+  gauge: (
+    <>
+      <path d="M4 18a9 9 0 1 1 16 0" />
+      <path d="m12 15 4-5" />
+      <circle cx="12" cy="16" r="1.2" />
+    </>
+  ),
+  scan: (
+    <>
+      <path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3" />
+      <path d="M3 12h18" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="m12 3 1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3Z" />
+      <path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" />
+    </>
+  ),
+  history: (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.64-6.36" />
+      <path d="M3 3v6h6" />
+      <path d="M12 7.5V12l3 2" />
     </>
   ),
 };

@@ -101,7 +101,40 @@ export type WorkspaceMember = {
   updatedAt: string;
 };
 
-export type ViewMode = "overview" | "workspaces" | "members" | "users" | "my-workspaces";
+/**
+ * One administrative audit event, as returned by `GET admin/audit-logs`.
+ *
+ * Ids and labels are both present by design: the id says which record, the label
+ * keeps the row readable after that record is renamed or deleted. Every field
+ * except `action`, `result`, and `createdAt` is nullable — a webhook-driven event
+ * has no actor, and a session event has no workspace.
+ */
+export type AuditLog = {
+  id: string;
+  /** Machine key, e.g. "workspace.created". */
+  action: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  targetType: string | null;
+  targetId: string | null;
+  targetLabel: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  result: string;
+  /** Action-specific detail; shape varies by action. */
+  metadata: unknown;
+  createdAt: string;
+};
+
+export type ViewMode =
+  | "overview"
+  | "analytics"
+  | "audit"
+  | "workspaces"
+  | "members"
+  | "users"
+  | "my-workspaces";
 export type ToastType = "success" | "error";
 
 export type ToastState = {

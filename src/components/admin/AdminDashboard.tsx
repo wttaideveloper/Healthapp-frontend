@@ -1,5 +1,7 @@
 ﻿import { FormEvent } from "react";
 
+import { AnalyticsView } from "@/components/admin/analytics/AnalyticsView";
+import { AuditLogsView } from "@/components/admin/AuditLogsView";
 import { DashboardOverview } from "@/components/admin/DashboardOverview";
 import { MembersView } from "@/components/admin/MembersView";
 import { UsersView } from "@/components/admin/UsersView";
@@ -101,18 +103,23 @@ type NavItem = { key: ViewMode; label: string; icon: IconName };
 
 const platformNav: NavItem[] = [
   { key: "overview", label: "Overview", icon: "grid" },
+  { key: "analytics", label: "Analytics", icon: "chart" },
   { key: "workspaces", label: "Workspaces", icon: "building" },
   { key: "members", label: "Members", icon: "users" },
   { key: "users", label: "Users", icon: "shield" },
+  { key: "audit", label: "Audit Logs", icon: "history" },
 ];
 
 const workspaceNav: NavItem[] = [
   { key: "my-workspaces", label: "My Workspaces", icon: "building" },
+  { key: "analytics", label: "Analytics", icon: "chart" },
   { key: "members", label: "Members", icon: "users" },
 ];
 
 const viewCopy: Record<ViewMode, { title: string; description: string }> = {
   overview: { title: "Overview", description: "Platform health across workspaces, subscriptions, and accounts" },
+  analytics: { title: "Analytics", description: "Executive view of adoption, capacity, and subscription health" },
+  audit: { title: "Audit Logs", description: "Who did what, when, and to which resource" },
   workspaces: { title: "Workspaces", description: "Provision and manage organization workspaces" },
   members: { title: "Members", description: "Manage seats and roles within a workspace" },
   users: { title: "Users", description: "Platform accounts and administrator management" },
@@ -261,6 +268,28 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 onRefreshData={props.onRefreshData}
                 setActiveView={props.setActiveView}
               />
+            ) : null}
+
+            {/* ================================================= ANALYTICS */}
+            {props.activeView === "analytics" ? (
+              <AnalyticsView
+                isPlatformAdmin={props.isPlatformAdmin}
+                workspaces={props.workspaces}
+                myWorkspaces={props.myWorkspaces}
+                users={props.users}
+                members={props.members}
+                membersScopeLabel={props.metrics.pendingInvitationsScope}
+                isLoadingDashboard={props.isLoadingDashboard}
+                dashboardError={props.dashboardError ?? null}
+                onRefreshData={props.onRefreshData}
+                onNotify={props.onNotify ?? noopNotify}
+              />
+            ) : null}
+
+            {/* ===================================================== AUDIT */}
+            {/* Platform-admin only: the read endpoint authorizes on the same role. */}
+            {props.activeView === "audit" && props.isPlatformAdmin ? (
+              <AuditLogsView onNotify={props.onNotify ?? noopNotify} />
             ) : null}
 
             {/* ================================================ WORKSPACES */}

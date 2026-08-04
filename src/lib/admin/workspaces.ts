@@ -101,7 +101,14 @@ export type SeatUsage = {
   isOverCapacity: boolean;
 };
 
-export function getSeatUsage(workspace: Workspace): SeatUsage {
+/**
+ * Structural subset needed to compute seat pressure. Widened from `Workspace` so
+ * the Analytics dashboard can reuse the rule for `workspaces/me` rows, which
+ * carry seat fields but not the full admin workspace record.
+ */
+export type SeatSubject = Pick<Workspace, "activeSeatCount" | "seatLimit">;
+
+export function getSeatUsage(workspace: SeatSubject): SeatUsage {
   const used = Math.max(0, workspace.activeSeatCount);
   const limit = workspace.seatLimit;
 
@@ -130,7 +137,9 @@ export function getSeatUsage(workspace: Workspace): SeatUsage {
  * the console can explain *why* a workspace is or is not unlocking Pro access
  * without an extra request per row.
  */
-export function isWorkspaceEntitled(workspace: Workspace, now: number = Date.now()): boolean {
+export type EntitlementSubject = Pick<Workspace, "status" | "subscriptionStatus" | "expiresAt">;
+
+export function isWorkspaceEntitled(workspace: EntitlementSubject, now: number = Date.now()): boolean {
   if (workspace.status !== "active") return false;
   if (workspace.subscriptionStatus !== "active" && workspace.subscriptionStatus !== "trialing") return false;
   if (!workspace.expiresAt) return true;
@@ -139,7 +148,7 @@ export function isWorkspaceEntitled(workspace: Workspace, now: number = Date.now
 }
 
 /** Human-readable reason a workspace is not entitled; null when it is. */
-export function describeEntitlementBlock(workspace: Workspace, now: number = Date.now()): string | null {
+export function describeEntitlementBlock(workspace: EntitlementSubject, now: number = Date.now()): string | null {
   if (workspace.status !== "active") return `Workspace status is “${workspace.status}”`;
   if (workspace.subscriptionStatus !== "active" && workspace.subscriptionStatus !== "trialing") {
     return `Subscription is “${workspace.subscriptionStatus}”`;

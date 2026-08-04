@@ -35,7 +35,17 @@ export function FilterSelect<T extends string>({
         value={value}
         aria-label={label}
         onChange={(event) => onChange(event.target.value as T)}
-        className={`ha-input w-auto py-1.5 text-xs ${className}`}
+        /**
+         * `width: auto` is set inline, not via the `w-auto` utility.
+         * `.ha-input` declares `width: 100%` in globals.css outside any cascade
+         * layer, and unlayered rules beat Tailwind's layered utilities no matter
+         * their specificity — so `w-auto` never applied and every toolbar select
+         * stretched to its container, one per row. Inline style is the smallest
+         * fix that restores the intended compact sizing without editing the
+         * shared `.ha-input` rule that inputs elsewhere depend on.
+         */
+        style={{ width: "auto" }}
+        className={`ha-input w-auto max-w-full py-1.5 text-xs ${className}`}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
