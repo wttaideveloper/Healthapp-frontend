@@ -93,6 +93,8 @@ export type WorkspaceMember = {
   email: string;
   role: "owner" | "admin" | "member" | string;
   status: "active" | "invited" | "revoked" | string;
+  /** Returned by `memberResponseSchema`; null for seats created before tracking. */
+  invitedByUserId?: string | null;
   joinedAt: string | null;
   revokedAt: string | null;
   createdAt: string;
@@ -113,4 +115,17 @@ export type DashboardMetrics = {
   activeWorkspaces: number;
   totalActiveSeats: number;
   usersWithAccess: number;
+  /** Count from `admin/users`. Platform-admin only endpoint. */
+  totalUsers: number;
+  /** Workspaces whose subscriptionStatus is `active` or `trialing`. */
+  activeSubscriptions: number;
+  /**
+   * Members with status `invited` among the members currently loaded.
+   * Scoped to the selected workspace — see `pendingInvitationsScope`.
+   */
+  pendingInvitations: number;
+  /** Name of the workspace `pendingInvitations` covers, or null when none is loaded. */
+  pendingInvitationsScope: string | null;
+  /** False for workspace managers, who cannot call `admin/users`. */
+  canReadAllUsers: boolean;
 };

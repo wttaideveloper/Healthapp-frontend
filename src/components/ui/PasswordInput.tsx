@@ -8,6 +8,9 @@ type PasswordInputProps = {
   className?: string;
   placeholder?: string;
   required?: boolean;
+  /** Enables `<label htmlFor>` association. */
+  id?: string;
+  autoComplete?: string;
 };
 
 export function PasswordInput(props: PasswordInputProps) {
@@ -16,12 +19,14 @@ export function PasswordInput(props: PasswordInputProps) {
   return (
     <div className="relative">
       <input
+        id={props.id}
         value={props.value}
         onChange={props.onChange}
         className={`${props.className ?? ""} w-full pr-11`}
         placeholder={props.placeholder}
         type={isVisible ? "text" : "password"}
         required={props.required}
+        autoComplete={props.autoComplete}
       />
       <button
         type="button"

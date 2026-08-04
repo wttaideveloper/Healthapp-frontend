@@ -1,15 +1,42 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f2ee;
-  --foreground: #1f2d2a;
-  --muted: #edf1eb;
+  /* Surfaces */
+  --background: #f6f7f9;
+  --foreground: #0f172a;
+  --muted: #f1f5f9;
   --card: #ffffff;
-  --card-2: #f7f4ed;
-  --border: #d3ddd7;
+  --card-2: #f8fafc;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* Brand + semantic */
   --accent: #0f766e;
+  --accent-hover: #115e56;
+  --accent-soft: #ecfdf5;
   --accent-2: #f59e0b;
   --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --info: #0369a1;
+  --info-soft: #f0f9ff;
+
+  /* Text ramp */
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.04);
+
+  /* Motion */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration: 160ms;
 }
 
 @theme inline {
@@ -19,10 +46,16 @@
   --color-card: var(--card);
   --color-card-2: var(--card-2);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
   --color-accent-2: var(--accent-2);
   --color-danger: var(--danger);
-  --font-sans: "Avenir Next", "Nunito Sans", "Trebuchet MS", sans-serif;
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --font-sans: "Inter", "Avenir Next", "Nunito Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "Menlo", "Consolas", monospace;
 }
 
@@ -34,10 +67,9 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--foreground);
-  background:
-    radial-gradient(circle at 8% 12%, rgba(15, 118, 110, 0.17), transparent 28%),
-    radial-gradient(circle at 86% 0%, rgba(245, 158, 11, 0.2), transparent 22%),
-    linear-gradient(160deg, #f8f7f3 0%, #eceee8 44%, #f7f2e8 100%);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 input,
@@ -45,4 +77,449 @@ select,
 button,
 textarea {
   font: inherit;
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Component primitives
+   Plain CSS (not @apply) so the design system is readable and does
+   not depend on Tailwind's layer ordering.
+   --------------------------------------------------------------- */
+
+/* Cards -------------------------------------------------------- */
+.ha-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.ha-card-interactive {
+  transition: box-shadow var(--duration) var(--ease), border-color var(--duration) var(--ease),
+    transform var(--duration) var(--ease);
+}
+
+.ha-card-interactive:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+/* Section headings --------------------------------------------- */
+.ha-section-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.ha-section-subtitle {
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.ha-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+/* Buttons ------------------------------------------------------ */
+.ha-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--duration) var(--ease), border-color var(--duration) var(--ease),
+    color var(--duration) var(--ease), box-shadow var(--duration) var(--ease), opacity var(--duration) var(--ease);
+}
+
+.ha-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ha-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ha-btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-xs);
+}
+
+.ha-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.ha-btn-secondary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+
+.ha-btn-secondary:hover:not(:disabled) {
+  background: var(--muted);
+  border-color: var(--border-strong);
+}
+
+.ha-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.ha-btn-ghost:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.ha-btn-danger {
+  background: var(--danger-soft);
+  border-color: rgba(220, 38, 38, 0.25);
+  color: var(--danger);
+}
+
+.ha-btn-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.ha-btn-sm {
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  border-radius: 7px;
+}
+
+/* Form controls ------------------------------------------------ */
+.ha-input {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 8px 11px;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+
+.ha-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.ha-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--border-strong);
+}
+
+.ha-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.ha-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 0.75rem;
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+/* Navigation --------------------------------------------------- */
+.ha-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+
+.ha-nav-item:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.ha-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ha-nav-item-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ha-nav-item-active:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Badges ------------------------------------------------------- */
+.ha-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 2px 9px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.125rem;
+  white-space: nowrap;
+}
+
+.ha-badge-success {
+  background: var(--success-soft);
+  border-color: rgba(5, 150, 105, 0.22);
+  color: var(--success);
+}
+
+.ha-badge-warning {
+  background: var(--warning-soft);
+  border-color: rgba(180, 83, 9, 0.22);
+  color: var(--warning);
+}
+
+.ha-badge-danger {
+  background: var(--danger-soft);
+  border-color: rgba(220, 38, 38, 0.22);
+  color: var(--danger);
+}
+
+.ha-badge-neutral {
+  background: var(--muted);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.ha-badge-info {
+  background: var(--info-soft);
+  border-color: rgba(3, 105, 161, 0.22);
+  color: var(--info);
+}
+
+/* Tables ------------------------------------------------------- */
+.ha-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+}
+
+.ha-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card-2);
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.ha-table tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  vertical-align: middle;
+}
+
+.ha-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ha-table tbody tr {
+  transition: background-color var(--duration) var(--ease);
+}
+
+.ha-table-row-hover:hover {
+  background: var(--card-2);
+}
+
+.ha-table-row-selected {
+  background: var(--accent-soft);
+}
+
+.ha-table-row-selected:hover {
+  background: var(--accent-soft);
+}
+
+/* Numeric display ---------------------------------------------- */
+.ha-metric-value {
+  font-size: 1.875rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+/* Skeleton loading --------------------------------------------- */
+.ha-skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--muted) 25%, #e8edf3 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: ha-shimmer 1.4s var(--ease) infinite;
+}
+
+@keyframes ha-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Toast -------------------------------------------------------- */
+@keyframes ha-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ha-toast {
+  animation: ha-toast-in 200ms var(--ease);
+}
+
+/* Overlay + menu motion ---------------------------------------- */
+@keyframes ha-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ha-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes ha-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Zebra striping — subtle enough to guide the eye without banding. */
+.ha-table-zebra tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--card-2) 55%, transparent);
+}
+
+.ha-table-zebra tbody tr.ha-table-row-selected {
+  background: var(--accent-soft);
+}
+
+/* Sortable column headers -------------------------------------- */
+.ha-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--duration) var(--ease);
+}
+
+.ha-sort-button:hover {
+  color: var(--foreground);
+}
+
+.ha-sort-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ha-sort-active {
+  color: var(--accent);
+}
+
+.ha-sort-indicator {
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease);
+}
+
+.ha-sort-button:hover .ha-sort-indicator,
+.ha-sort-active .ha-sort-indicator {
+  opacity: 1;
+}
+
+/* Scrollbars --------------------------------------------------- */
+.ha-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ha-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.ha-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }

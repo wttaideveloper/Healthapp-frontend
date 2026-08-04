@@ -1,9 +1,12 @@
-import { FormEvent } from "react";
+﻿import { FormEvent } from "react";
 
-import { MetricCard } from "@/components/ui/MetricCard";
-import { PasswordInput } from "@/components/ui/PasswordInput";
+import { DashboardOverview } from "@/components/admin/DashboardOverview";
+import { MembersView } from "@/components/admin/MembersView";
+import { UsersView } from "@/components/admin/UsersView";
+import { WorkspacesView } from "@/components/admin/WorkspacesView";
+import { Avatar } from "@/components/ui/Avatar";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { ToastMessage } from "@/components/ui/ToastMessage";
-import { formatDateTime } from "@/lib/format";
 import {
   AdminUser,
   AuthUser,
@@ -81,257 +84,285 @@ type AdminDashboardProps = {
   newAdminPassword: string;
   setNewAdminPassword: (value: string) => void;
   onCreateAdmin: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  /** Optional: surfaces a load failure in the overview KPIs. */
+  dashboardError?: string | null;
+  /** Optional: ISO timestamp of the last completed dashboard load. */
+  lastRefreshedAt?: string | null;
+  /** Optional: raises a toast (used by copy-to-clipboard in the Users view). */
+  onNotify?: (type: "success" | "error", message: string) => void;
+  /** Optional: reuses `POST admin/users/promote-admin`. Null disables the action. */
+  onPromoteUserToAdmin?: ((email: string) => Promise<void>) | null;
 };
 
-const platformNav: Array<{ key: ViewMode; label: string }> = [
-  { key: "overview", label: "Overview" },
-  { key: "workspaces", label: "Workspaces" },
-  { key: "members", label: "Members" },
-  { key: "users", label: "Users" },
+/** Stable no-op so an omitted `onNotify` does not change identity each render. */
+function noopNotify(): void {}
+
+type NavItem = { key: ViewMode; label: string; icon: IconName };
+
+const platformNav: NavItem[] = [
+  { key: "overview", label: "Overview", icon: "grid" },
+  { key: "workspaces", label: "Workspaces", icon: "building" },
+  { key: "members", label: "Members", icon: "users" },
+  { key: "users", label: "Users", icon: "shield" },
 ];
 
-const workspaceNav: Array<{ key: ViewMode; label: string }> = [
-  { key: "my-workspaces", label: "My Workspaces" },
-  { key: "members", label: "Members" },
+const workspaceNav: NavItem[] = [
+  { key: "my-workspaces", label: "My Workspaces", icon: "building" },
+  { key: "members", label: "Members", icon: "users" },
 ];
+
+const viewCopy: Record<ViewMode, { title: string; description: string }> = {
+  overview: { title: "Overview", description: "Platform health across workspaces, subscriptions, and accounts" },
+  workspaces: { title: "Workspaces", description: "Provision and manage organization workspaces" },
+  members: { title: "Members", description: "Manage seats and roles within a workspace" },
+  users: { title: "Users", description: "Platform accounts and administrator management" },
+  "my-workspaces": { title: "My Workspaces", description: "Workspaces where you hold an owner or admin seat" },
+};
+
+const subscriptionStatusOptions = ["active", "trialing", "past_due", "expired", "canceled"];
+const workspaceStatusOptions = ["active", "suspended", "revoked"];
 
 export function AdminDashboard(props: AdminDashboardProps) {
   const nav = props.isPlatformAdmin ? platformNav : workspaceNav;
+  const copy = viewCopy[props.activeView] ?? viewCopy.overview;
+  const showOverview = props.activeView === "overview" || props.activeView === "my-workspaces";
 
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 md:px-8">
+    <div className="min-h-screen bg-[color:var(--background)]">
       {props.toast ? <ToastMessage type={props.toast.type} message={props.toast.message} /> : null}
 
-      <div className="grid gap-6 md:grid-cols-[240px_1fr]">
-        <aside className="rounded-3xl border border-border bg-card p-4 shadow-sm md:sticky md:top-6 md:h-[calc(100vh-3rem)]">
-          <div className="mb-4 rounded-2xl bg-muted p-3">
-            <p className="text-xs uppercase tracking-[0.2em] text-accent">HealthAge</p>
-            <p className="mt-1 text-sm font-semibold">{props.currentUser.name}</p>
-            <p className="text-xs text-foreground/70">{props.currentUser.email}</p>
-          </div>
-          <nav className="flex gap-2 overflow-x-auto pb-1 md:flex-col md:overflow-visible">
-            {nav.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => props.setActiveView(item.key)}
-                className={`shrink-0 rounded-xl px-3 py-2 text-left text-sm transition ${props.activeView === item.key ? "bg-foreground text-white" : "border border-border bg-white hover:bg-muted"
-                  }`}
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col lg:flex-row">
+        {/* ============================================================ SIDEBAR */}
+        <aside className="shrink-0 border-b border-[color:var(--border)] bg-[color:var(--card)] lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
+          <div className="flex h-full flex-col">
+            {/* Brand */}
+            <div className="flex items-center gap-2.5 px-5 py-4 lg:py-5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color:var(--accent)] text-white">
+                <Icon name="shield" size={17} />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[0.8125rem] font-semibold leading-tight">HealthAge</p>
+                <p className="truncate text-[0.6875rem] leading-tight text-[color:var(--text-muted)]">Admin Console</p>
+              </div>
+              <span
+                className={`ml-auto ha-badge ${props.isPlatformAdmin ? "ha-badge-warning" : "ha-badge-info"} lg:hidden`}
               >
-                {item.label}
-              </button>
-            ))}
-          </nav>
-          <button
-            type="button"
-            onClick={props.clearSession}
-            className="mt-4 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-semibold hover:bg-muted"
-          >
-            Logout
-          </button>
+                {props.isPlatformAdmin ? "Platform" : "Workspace"}
+              </span>
+            </div>
+
+            {/* Navigation */}
+            <nav
+              aria-label="Dashboard sections"
+              className="ha-scroll flex gap-1.5 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible lg:px-3 lg:pb-0"
+            >
+              {nav.map((item) => {
+                const isActive = props.activeView === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    aria-current={isActive ? "page" : undefined}
+                    onClick={() => props.setActiveView(item.key)}
+                    className={`ha-nav-item shrink-0 ${isActive ? "ha-nav-item-active" : ""}`}
+                  >
+                    <Icon name={item.icon} size={15} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Account */}
+            <div className="mt-auto hidden border-t border-[color:var(--border)] p-3 lg:block">
+              <div className="flex items-center gap-2.5 rounded-lg bg-[color:var(--muted)] px-3 py-2.5">
+                <Avatar name={props.currentUser.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.8125rem] font-medium leading-tight">{props.currentUser.name}</p>
+                  <p className="truncate text-[0.6875rem] leading-tight text-[color:var(--text-muted)]">
+                    {props.currentUser.email}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 px-1">
+                <span className={`ha-badge ${props.isPlatformAdmin ? "ha-badge-warning" : "ha-badge-info"}`}>
+                  {props.isPlatformAdmin ? "Platform admin" : "Workspace admin"}
+                </span>
+                <button
+                  type="button"
+                  onClick={props.clearSession}
+                  className="ha-btn ha-btn-ghost ha-btn-sm"
+                  title="Sign out"
+                >
+                  <Icon name="logout" size={13} />
+                  Logout
+                </button>
+              </div>
+            </div>
+          </div>
         </aside>
 
-        <section className="space-y-6">
-          <header className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-accent">Access Dashboard</p>
-                <h1 className="mt-2 text-2xl font-semibold md:text-3xl">{props.activeView.replace("-", " ")}</h1>
+        {/* ============================================================== MAIN */}
+        <main className="min-w-0 flex-1">
+          {/* Page header */}
+          <header className="sticky top-0 z-20 border-b border-[color:var(--border)] bg-[color:var(--card)]/85 px-5 py-4 backdrop-blur-md md:px-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-semibold tracking-[-0.01em] md:text-xl">{copy.title}</h1>
+                <p className="mt-0.5 truncate text-[0.8125rem] text-[color:var(--text-muted)]">{copy.description}</p>
               </div>
-              <button
-                type="button"
-                onClick={props.onRefreshData}
-                className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white"
-              >
-                Refresh
-              </button>
+
+              <div className="flex items-center gap-2">
+                {props.lastRefreshedAt && !props.isLoadingDashboard ? (
+                  <span className="hidden text-xs text-[color:var(--text-subtle)] sm:inline">
+                    Updated {new Date(props.lastRefreshedAt).toLocaleTimeString()}
+                  </span>
+                ) : null}
+                {props.isLoadingDashboard ? (
+                  <span className="hidden text-xs text-[color:var(--text-subtle)] sm:inline">Loadingâ€¦</span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={props.onRefreshData}
+                  disabled={props.isLoadingDashboard}
+                  className="ha-btn ha-btn-secondary"
+                >
+                  <Icon
+                    name="refresh"
+                    size={14}
+                    className={props.isLoadingDashboard ? "animate-spin" : undefined}
+                  />
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={props.clearSession}
+                  className="ha-btn ha-btn-ghost lg:hidden"
+                  title="Sign out"
+                >
+                  <Icon name="logout" size={14} />
+                </button>
+              </div>
             </div>
           </header>
 
-          {(props.activeView === "overview" || props.activeView === "my-workspaces") && (
-            <section className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <MetricCard label="Total Workspaces" value={props.metrics.totalWorkspaces} />
-                <MetricCard label="Active Workspaces" value={props.metrics.activeWorkspaces} />
-                <MetricCard label="Active Seats" value={props.metrics.totalActiveSeats} />
-                <MetricCard label="Users With Access" value={props.metrics.usersWithAccess} />
-              </div>
-              {!props.isPlatformAdmin ? (
-                <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold">Entitlement</h2>
-                  <p className="mt-2 text-sm text-foreground/70">
-                    Source: {props.entitlement?.source ?? "none"} | Provider status: {props.entitlement?.providerStatus ?? "n/a"}
-                  </p>
-                </article>
-              ) : null}
-            </section>
-          )}
+          <div className="space-y-5 px-5 py-6 md:px-8">
+            {/* ================================================== OVERVIEW */}
+            {showOverview ? (
+              <DashboardOverview
+                metrics={props.metrics}
+                isPlatformAdmin={props.isPlatformAdmin}
+                isLoadingDashboard={props.isLoadingDashboard}
+                dashboardError={props.dashboardError ?? null}
+                entitlement={props.entitlement}
+                workspaces={props.workspaces}
+                users={props.users}
+                members={props.members}
+                onRefreshData={props.onRefreshData}
+                setActiveView={props.setActiveView}
+              />
+            ) : null}
 
-          {props.activeView === "workspaces" && props.isPlatformAdmin ? (
-            <section className="space-y-6">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <form className="rounded-3xl border border-border bg-card p-5 shadow-sm" onSubmit={props.onCreateWorkspace}>
-                  <h2 className="text-lg font-semibold">Create Workspace</h2>
-                  <div className="mt-4 grid gap-3">
-                    <input value={props.workspaceName} onChange={(e) => props.setWorkspaceName(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Name" required />
-                    <input value={props.workspaceOwnerEmail} onChange={(e) => props.setWorkspaceOwnerEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Owner email" type="email" required />
-                    <input value={props.workspaceSeatLimit} onChange={(e) => props.setWorkspaceSeatLimit(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Seat limit" type="number" min={1} />
-                    <input value={props.workspacePlan} onChange={(e) => props.setWorkspacePlan(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Plan" />
-                    <select value={props.workspaceSubscriptionStatus} onChange={(e) => props.setWorkspaceSubscriptionStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="active">active</option><option value="trialing">trialing</option><option value="past_due">past_due</option><option value="expired">expired</option><option value="canceled">canceled</option>
-                    </select>
-                    <select value={props.workspaceStatus} onChange={(e) => props.setWorkspaceStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="active">active</option><option value="suspended">suspended</option><option value="revoked">revoked</option>
-                    </select>
-                    <input value={props.workspaceExpiresAt} onChange={(e) => props.setWorkspaceExpiresAt(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="ExpiresAt ISO (optional)" />
-                    <input value={props.workspaceNotes} onChange={(e) => props.setWorkspaceNotes(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Notes (optional)" />
-                    <button type="submit" disabled={props.isBusy} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">Create Workspace</button>
-                  </div>
-                </form>
+            {/* ================================================ WORKSPACES */}
+            {props.activeView === "workspaces" && props.isPlatformAdmin ? (
+              <WorkspacesView
+                workspaces={props.workspaces}
+                users={props.users}
+                members={props.members}
+                selectedWorkspaceId={props.selectedWorkspaceId}
+                onWorkspaceSelectionChange={props.onWorkspaceSelectionChange}
+                isLoadingDashboard={props.isLoadingDashboard}
+                dashboardError={props.dashboardError ?? null}
+                isBusy={props.isBusy}
+                onRefreshData={props.onRefreshData}
+                onNotify={props.onNotify ?? noopNotify}
+                workspaceName={props.workspaceName}
+                setWorkspaceName={props.setWorkspaceName}
+                workspaceOwnerEmail={props.workspaceOwnerEmail}
+                setWorkspaceOwnerEmail={props.setWorkspaceOwnerEmail}
+                workspaceSeatLimit={props.workspaceSeatLimit}
+                setWorkspaceSeatLimit={props.setWorkspaceSeatLimit}
+                workspacePlan={props.workspacePlan}
+                setWorkspacePlan={props.setWorkspacePlan}
+                workspaceSubscriptionStatus={props.workspaceSubscriptionStatus}
+                setWorkspaceSubscriptionStatus={props.setWorkspaceSubscriptionStatus}
+                workspaceStatus={props.workspaceStatus}
+                setWorkspaceStatus={props.setWorkspaceStatus}
+                workspaceNotes={props.workspaceNotes}
+                setWorkspaceNotes={props.setWorkspaceNotes}
+                workspaceExpiresAt={props.workspaceExpiresAt}
+                setWorkspaceExpiresAt={props.setWorkspaceExpiresAt}
+                onCreateWorkspace={props.onCreateWorkspace}
+                updateSeatLimit={props.updateSeatLimit}
+                setUpdateSeatLimit={props.setUpdateSeatLimit}
+                updatePlan={props.updatePlan}
+                setUpdatePlan={props.setUpdatePlan}
+                updateSubscriptionStatus={props.updateSubscriptionStatus}
+                setUpdateSubscriptionStatus={props.setUpdateSubscriptionStatus}
+                updateStatus={props.updateStatus}
+                setUpdateStatus={props.setUpdateStatus}
+                updateNotes={props.updateNotes}
+                setUpdateNotes={props.setUpdateNotes}
+                updateExpiresAt={props.updateExpiresAt}
+                setUpdateExpiresAt={props.setUpdateExpiresAt}
+                onUpdateWorkspace={props.onUpdateWorkspace}
+                memberEmail={props.memberEmail}
+                setMemberEmail={props.setMemberEmail}
+                memberRole={props.memberRole}
+                setMemberRole={props.setMemberRole}
+                onAddMember={props.onAddMember}
+              />
+            ) : null}
 
-                <form className="rounded-3xl border border-border bg-card p-5 shadow-sm" onSubmit={props.onUpdateWorkspace}>
-                  <h2 className="text-lg font-semibold">Update Selected Workspace</h2>
-                  <div className="mt-4 grid gap-3">
-                    <select value={props.selectedWorkspaceId} onChange={(e) => void props.onWorkspaceSelectionChange(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="">Select workspace</option>
-                      {props.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-                    </select>
-                    <input value={props.updateSeatLimit} onChange={(e) => props.setUpdateSeatLimit(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Seat limit" type="number" min={1} />
-                    <input value={props.updatePlan} onChange={(e) => props.setUpdatePlan(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Plan" />
-                    <select value={props.updateSubscriptionStatus} onChange={(e) => props.setUpdateSubscriptionStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="active">active</option><option value="trialing">trialing</option><option value="past_due">past_due</option><option value="expired">expired</option><option value="canceled">canceled</option>
-                    </select>
-                    <select value={props.updateStatus} onChange={(e) => props.setUpdateStatus(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="active">active</option><option value="suspended">suspended</option><option value="revoked">revoked</option>
-                    </select>
-                    <input value={props.updateExpiresAt} onChange={(e) => props.setUpdateExpiresAt(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="ExpiresAt ISO" />
-                    <input value={props.updateNotes} onChange={(e) => props.setUpdateNotes(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Notes" />
-                    <button type="submit" disabled={!props.selectedWorkspaceId || props.isBusy} className="rounded-xl bg-foreground px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">Update Workspace</button>
-                  </div>
-                </form>
-              </div>
+            {/* =================================================== MEMBERS */}
+            {props.activeView === "members" || props.activeView === "my-workspaces" ? (
+              <MembersView
+                members={props.members}
+                users={props.users}
+                workspaces={props.workspaces}
+                myWorkspaces={props.myWorkspaces}
+                selectedWorkspaceId={props.selectedWorkspaceId}
+                selectedWorkspace={props.selectedWorkspace}
+                onWorkspaceSelectionChange={props.onWorkspaceSelectionChange}
+                isPlatformAdmin={props.isPlatformAdmin}
+                isLoadingDashboard={props.isLoadingDashboard}
+                dashboardError={props.dashboardError ?? null}
+                isBusy={props.isBusy}
+                onRefreshData={props.onRefreshData}
+                onNotify={props.onNotify ?? noopNotify}
+                memberEmail={props.memberEmail}
+                setMemberEmail={props.setMemberEmail}
+                memberRole={props.memberRole}
+                setMemberRole={props.setMemberRole}
+                onAddMember={props.onAddMember}
+                onUpdateMember={props.onUpdateMember}
+                onRevokeMember={props.onRevokeMember}
+              />
+            ) : null}
 
-              <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="text-lg font-semibold">Workspace Directory</h2>
-                <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-border md:block">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-muted text-left text-xs uppercase tracking-wider text-foreground/70"><tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Owner</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Sub Status</th><th className="px-3 py-2">Seats</th></tr></thead>
-                    <tbody>
-                      {props.workspaces.map((workspace) => (
-                        <tr key={workspace.id} className={`cursor-pointer border-t ${workspace.id === props.selectedWorkspaceId ? "bg-accent/10" : "bg-white/80 hover:bg-muted/60"}`} onClick={() => void props.onWorkspaceSelectionChange(workspace.id)}>
-                          <td className="px-3 py-2">{workspace.name}</td><td className="px-3 py-2">{workspace.ownerEmail}</td><td className="px-3 py-2">{workspace.status}</td><td className="px-3 py-2">{workspace.subscriptionStatus}</td><td className="px-3 py-2">{workspace.activeSeatCount}/{workspace.seatLimit ?? "unlimited"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            </section>
-          ) : null}
-
-          {props.activeView === "members" || props.activeView === "my-workspaces" ? (
-            <section className="space-y-6">
-              {!props.isPlatformAdmin ? (
-                <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold">My Workspaces</h2>
-                  <div className="mt-4 grid gap-3">
-                    {props.myWorkspaces.map((workspace) => (
-                      <button key={workspace.id} type="button" onClick={() => void props.onWorkspaceSelectionChange(workspace.id)} className={`rounded-xl border p-3 text-left ${props.selectedWorkspaceId === workspace.id ? "border-accent bg-accent/5" : "border-border bg-white"}`}>
-                        <p className="text-sm font-semibold">{workspace.name}</p>
-                        <p className="text-xs text-foreground/70">{workspace.role} • {workspace.status}</p>
-                      </button>
-                    ))}
-                  </div>
-                </article>
-              ) : null}
-
-              {!props.isPlatformAdmin ? (
-                <form className="rounded-3xl border border-border bg-card p-5 shadow-sm" onSubmit={props.onAddMember}>
-                  <h2 className="text-lg font-semibold">Add Member</h2>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <input value={props.memberEmail} onChange={(e) => props.setMemberEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="member@clinic.com" type="email" required />
-                    <select value={props.memberRole} onChange={(e) => props.setMemberRole(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm">
-                      <option value="member">member</option>
-                      <option value="admin">admin</option>
-                    </select>
-                    <button type="submit" disabled={!props.selectedWorkspaceId || props.isBusy} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">Add</button>
-                  </div>
-                </form>
-              ) : (
-                <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold">Selected Workspace Members</h2>
-                  <p className="mt-2 text-sm text-foreground/70">
-                    Select a workspace in the Workspaces view to inspect its members here.
-                  </p>
-                </article>
-              )}
-
-              <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="text-lg font-semibold">Workspace Members</h2>
-                <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-border md:block">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-muted text-left text-xs uppercase tracking-wider text-foreground/70"><tr><th className="px-3 py-2">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Joined</th><th className="px-3 py-2">Actions</th></tr></thead>
-                    <tbody>
-                      {props.members.map((member) => (
-                        <tr key={member.id} className="border-t bg-white/80">
-                          <td className="px-3 py-2">{member.email}</td>
-                          <td className="px-3 py-2">{member.role}</td>
-                          <td className="px-3 py-2">{member.status}</td>
-                          <td className="px-3 py-2">{member.joinedAt ? formatDateTime(member.joinedAt) : "-"}</td>
-                          <td className="px-3 py-2">
-                            <div className="flex gap-2">
-                              <button type="button" disabled={member.role === "owner" || props.isBusy} onClick={() => void props.onUpdateMember(member.id, member.role === "member" ? "admin" : "member", "active")} className="rounded-lg border border-border bg-white px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
-                                Toggle Role
-                              </button>
-                              <button type="button" disabled={member.role === "owner" || props.isBusy} onClick={() => void props.onRevokeMember(member.id)} className="rounded-lg border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger hover:bg-danger/20 disabled:opacity-50">
-                                Revoke
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            </section>
-          ) : null}
-
-          {props.activeView === "users" && props.isPlatformAdmin ? (
-            <section className="space-y-6">
-              <form className="rounded-3xl border border-border bg-card p-5 shadow-sm" onSubmit={props.onCreateAdmin}>
-                <h2 className="text-lg font-semibold">Create Admin User</h2>
-                <div className="mt-4 grid gap-3 md:grid-cols-4">
-                  <input
-                    value={props.newAdminName}
-                    onChange={(e) => props.setNewAdminName(e.target.value)}
-                    className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-                    placeholder="Admin name"
-                    pattern="[A-Za-z][A-Za-z0-9 ]*"
-                    title="Name must start with a letter and can include letters, numbers, and spaces."
-                    required
-                  />
-                  <input value={props.newAdminEmail} onChange={(e) => props.setNewAdminEmail(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Admin email" type="email" required />
-                  <PasswordInput value={props.newAdminPassword} onChange={(e) => props.setNewAdminPassword(e.target.value)} className="rounded-xl border border-border bg-white px-3 py-2 text-sm" placeholder="Password" required />
-                  <button type="submit" disabled={props.isBusy} className="rounded-xl bg-accent-2 px-4 py-2 text-sm font-semibold text-foreground disabled:opacity-60">Create Admin</button>
-                </div>
-              </form>
-
-              <article className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="text-lg font-semibold">Users Directory</h2>
-                <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-border md:block">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-muted text-left text-xs uppercase tracking-wider text-foreground/70"><tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Access</th><th className="px-3 py-2">Created</th></tr></thead>
-                    <tbody>{props.users.map((user) => <tr key={user.id} className="border-t bg-white/80"><td className="px-3 py-2">{user.name}</td><td className="px-3 py-2">{user.email}</td><td className="px-3 py-2">{user.role}</td><td className="px-3 py-2">{user.status}</td><td className="px-3 py-2">{user.hasAccess ? "yes" : "no"}</td><td className="px-3 py-2">{formatDateTime(user.createdAt)}</td></tr>)}</tbody>
-                  </table>
-                </div>
-              </article>
-            </section>
-          ) : null}
-
-          {props.isLoadingDashboard ? <p className="text-sm text-foreground/70">Loading dashboard...</p> : null}
-        </section>
+            {/* ===================================================== USERS */}
+            {props.activeView === "users" && props.isPlatformAdmin ? (
+              <UsersView
+                users={props.users}
+                workspaces={props.workspaces}
+                isLoadingDashboard={props.isLoadingDashboard}
+                dashboardError={props.dashboardError ?? null}
+                isBusy={props.isBusy}
+                onRefreshData={props.onRefreshData}
+                onNotify={props.onNotify ?? noopNotify}
+                onPromoteUserToAdmin={props.onPromoteUserToAdmin ?? null}
+                newAdminName={props.newAdminName}
+                setNewAdminName={props.setNewAdminName}
+                newAdminEmail={props.newAdminEmail}
+                setNewAdminEmail={props.setNewAdminEmail}
+                newAdminPassword={props.newAdminPassword}
+                setNewAdminPassword={props.setNewAdminPassword}
+                onCreateAdmin={props.onCreateAdmin}
+              />
+            ) : null}
+          </div>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }

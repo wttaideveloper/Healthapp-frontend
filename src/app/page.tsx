@@ -84,6 +84,8 @@ export default function Home() {
 
   const [isBusy, setIsBusy] = useState(false);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -95,6 +97,14 @@ export default function Home() {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
     [workspaces, selectedWorkspaceId],
   );
+
+  const pendingInvitationsScope = useMemo(() => {
+    if (!selectedWorkspaceId) return null;
+    if (platformAdmin) {
+      return workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? null;
+    }
+    return myWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name ?? null;
+  }, [platformAdmin, workspaces, myWorkspaces, selectedWorkspaceId]);
 
   const metrics: DashboardMetrics = useMemo(() => {
     const sourceRows = platformAdmin
@@ -117,13 +127,23 @@ export default function Home() {
         updatedAt: "",
       }));
 
+    // "Active" subscriptions mirror the backend's isWorkspaceAccessActive rule,
+    // which treats both `active` and `trialing` as entitled.
+    const subscribedStatuses = new Set(["active", "trialing"]);
+
     return {
       totalWorkspaces: sourceRows.length,
       activeWorkspaces: sourceRows.filter((workspace) => workspace.status === "active").length,
       totalActiveSeats: sourceRows.reduce((sum, workspace) => sum + workspace.activeSeatCount, 0),
       usersWithAccess: users.filter((user) => user.hasAccess).length,
+      totalUsers: users.length,
+      activeSubscriptions: sourceRows.filter((workspace) => subscribedStatuses.has(workspace.subscriptionStatus))
+        .length,
+      pendingInvitations: members.filter((member) => member.status === "invited").length,
+      pendingInvitationsScope,
+      canReadAllUsers: platformAdmin,
     };
-  }, [platformAdmin, workspaces, myWorkspaces, users]);
+  }, [platformAdmin, workspaces, myWorkspaces, users, members, pendingInvitationsScope]);
 
   function showToast(type: ToastType, message: string): void {
     const nextToast = { id: Date.now(), type, message };
@@ -160,6 +180,7 @@ export default function Home() {
 
   async function loadDashboard(authToken: string, user: AuthUser | null): Promise<void> {
     setIsLoadingDashboard(true);
+    setDashboardError(null);
     try {
       const entitlementResponse = await callApi<EntitlementResponse>("entitlements/me", { method: "GET" }, authToken);
       setEntitlement(entitlementResponse);
@@ -196,9 +217,12 @@ export default function Home() {
       }
       setActiveView("my-workspaces");
     } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to load dashboard");
+      const message = error instanceof Error ? error.message : "Failed to load dashboard";
+      setDashboardError(message);
+      showToast("error", message);
     } finally {
       setIsLoadingDashboard(false);
+      setLastRefreshedAt(new Date().toISOString());
     }
   }
 
@@ -506,6 +530,35 @@ export default function Home() {
     }
   }
 
+  /**
+   * Promotes an existing user to platform admin from the Users table.
+   *
+   * Reuses the existing `POST admin/users/promote-admin` route, which accepts a
+   * platform-admin JWT (the bootstrap-token path is only a recovery fallback).
+   * No new endpoint is introduced.
+   */
+  async function onPromoteUserToAdmin(email: string): Promise<void> {
+    if (!token) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        "admin/users/promote-admin",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        },
+        token,
+      );
+      showToast("success", `${email} is now a platform admin.`);
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to promote user");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function onCreateAdmin(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!token) return;
@@ -565,6 +618,8 @@ export default function Home() {
       }}
       clearSession={clearSession}
       isLoadingDashboard={isLoadingDashboard}
+      dashboardError={dashboardError}
+      lastRefreshedAt={lastRefreshedAt}
       isBusy={isBusy}
       metrics={metrics}
       workspaces={workspaces}
@@ -620,6 +675,8 @@ export default function Home() {
       newAdminPassword={newAdminPassword}
       setNewAdminPassword={setNewAdminPassword}
       onCreateAdmin={onCreateAdmin}
+      onNotify={showToast}
+      onPromoteUserToAdmin={platformAdmin ? onPromoteUserToAdmin : null}
     />
   );
 }
