@@ -526,7 +526,7 @@ export function UsersView(props: UsersViewProps) {
                         type="button"
                         onClick={() => setSelectedUserId(user.id)}
                         aria-label={`View details for ${user.name}`}
-                        className="block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                        className="ha-tap-target block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
                       >
                         {user.name}
                       </button>

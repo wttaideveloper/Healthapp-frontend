@@ -430,7 +430,7 @@ export function MembersView(props: MembersViewProps) {
                       type="button"
                       onClick={() => setDrawerMemberId(member.id)}
                       aria-label={`View invitation details for ${identity.email}`}
-                      className="block max-w-full truncate text-left text-[0.8125rem] font-medium transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      className="ha-tap-target block max-w-full truncate text-left text-[0.8125rem] font-medium transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       {identity.email}
                     </button>
@@ -831,7 +831,7 @@ export function MembersView(props: MembersViewProps) {
                           type="button"
                           onClick={() => setDrawerMemberId(member.id)}
                           aria-label={`View details for ${identity.displayName}`}
-                          className="block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                          className="ha-tap-target block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                         >
                           {identity.displayName}
                         </button>

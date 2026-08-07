@@ -341,7 +341,11 @@ export function AuditLogsView({ onNotify }: AuditLogsViewProps) {
           />
         ) : (
           <>
-            <div className="ha-scroll overflow-x-auto">
+            {/* Desktop table. Below `md` the same rows render as cards — six
+                columns cannot be read on a phone without horizontal scrolling,
+                and every other directory view in this console already
+                transforms the same way. */}
+            <div className="ha-scroll hidden max-h-[calc(100vh-24rem)] overflow-auto md:block">
               <table className="ha-table ha-table-zebra">
                 <caption className="sr-only">
                   Administrative audit events. {sorted.length} of {allLogs.length} shown. Press Enter on a row
@@ -436,6 +440,57 @@ export function AuditLogsView({ onNotify }: AuditLogsViewProps) {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile cards */}
+            <ul className="divide-y divide-[color:var(--border)] md:hidden">
+              {pageData.rows.map((log) => (
+                <li key={log.id} className="px-4 py-3.5">
+                  <div className="flex items-start gap-3">
+                    <span
+                      aria-hidden="true"
+                      className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[color:var(--muted)] text-[color:var(--text-muted)]"
+                    >
+                      <Icon name={auditActionIcon(log.action)} size={15} />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(log.id)}
+                          aria-label={`View details for ${auditActionLabel(log.action)} by ${auditActorLabel(log)}`}
+                          className="ha-tap-target min-w-0 flex-1 truncate text-left text-[0.8125rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                        >
+                          {auditActionLabel(log.action)}
+                        </button>
+                        <time
+                          dateTime={log.createdAt}
+                          title={formatDateTime(log.createdAt)}
+                          className="shrink-0 text-xs tabular-nums text-[color:var(--text-subtle)]"
+                        >
+                          {formatRelativeTime(new Date(log.createdAt).getTime(), now ?? Date.now())}
+                        </time>
+                      </div>
+
+                      <p className="mt-0.5 truncate text-xs text-[color:var(--text-muted)]">
+                        {auditActorLabel(log)}
+                        {log.targetLabel ? ` → ${log.targetLabel}` : ""}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <StatusBadge value={log.result} />
+                        {log.workspaceName ? (
+                          <span className="ha-badge ha-badge-neutral">
+                            <Icon name="building" size={10} />
+                            {log.workspaceName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
 
             <Pagination
               page={pageData.page}

@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+
+import { AuthLink, AuthShell } from "@/components/auth/AuthShell";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ToastMessage } from "@/components/ui/ToastMessage";
 import { callApi } from "@/lib/admin/api";
@@ -8,6 +10,12 @@ import { callApi } from "@/lib/admin/api";
 type ToastState = { type: "success" | "error"; message: string } | null;
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9 ]*$/;
 
+/**
+ * Workspace admin sign-up.
+ *
+ * Registration logic is untouched — same endpoint, same name validation, same
+ * approval notice. Presentation moves onto the shared auth frame.
+ */
 export function WorkspaceAuthScreen() {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
@@ -44,53 +52,79 @@ export function WorkspaceAuthScreen() {
     }
 
     return (
-        <main className="mx-auto min-h-screen max-w-3xl px-6 py-10">
+        <>
             {toast ? <ToastMessage type={toast.type} message={toast.message} /> : null}
 
-            <section className="rounded-2xl border border-border bg-card p-8 shadow-sm">
-                <h1 className="text-2xl font-semibold">Workspace Admin Signup</h1>
-                <p className="mt-1 text-sm text-foreground/70">Create a workspace admin account.</p>
+            <AuthShell
+                title="Create your account"
+                subtitle="Register as a workspace administrator. A platform admin approves the account before first sign-in."
+                footer={
+                    <p>
+                        Already have an account? <AuthLink href="/">Sign in</AuthLink>
+                    </p>
+                }
+            >
+                <form onSubmit={onSubmit} className="grid gap-4">
+                    <div className="ha-field">
+                        <label className="ha-label" htmlFor="signup-name">
+                            Full name
+                        </label>
+                        <input
+                            id="signup-name"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="Jane Doe"
+                            pattern="[A-Za-z][A-Za-z0-9 ]*"
+                            title="Name must start with a letter and can include letters, numbers, and spaces."
+                            autoComplete="name"
+                            className="ha-input"
+                            required
+                        />
+                        <p className="ha-hint">Letters, numbers and spaces. Must start with a letter.</p>
+                    </div>
 
-                <form onSubmit={onSubmit} className="mt-6 grid gap-3">
-                    <input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Full name"
-                        pattern="[A-Za-z][A-Za-z0-9 ]*"
-                        title="Name must start with a letter and can include letters, numbers, and spaces."
-                        className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-                        required
-                    />
+                    <div className="ha-field">
+                        <label className="ha-label" htmlFor="signup-email">
+                            Work email
+                        </label>
+                        <input
+                            id="signup-email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@company.com"
+                            type="email"
+                            autoComplete="email"
+                            className="ha-input"
+                            required
+                        />
+                    </div>
 
-                    <input
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@company.com"
-                        type="email"
-                        className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-                        required
-                    />
-
-                    <PasswordInput
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Password"
-                        className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-                        required
-                    />
+                    <div className="ha-field">
+                        <label className="ha-label" htmlFor="signup-password">
+                            Password
+                        </label>
+                        <PasswordInput
+                            id="signup-password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="At least 8 characters"
+                            autoComplete="new-password"
+                            className="ha-input"
+                            required
+                        />
+                    </div>
 
                     <button
                         type="submit"
                         disabled={isBusy}
-                        className="mt-3 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        data-loading={isBusy || undefined}
+                        className="ha-btn ha-btn-primary ha-btn-lg mt-1 w-full"
                     >
-                        {isBusy ? "Please wait..." : "Sign Up"}
+                        {isBusy ? "Creating account…" : "Create account"}
                     </button>
-
-                    <p className="mt-3 text-sm text-foreground/70">Already have an account? <a href="/" className="text-accent underline">Sign in</a></p>
                 </form>
-            </section>
-        </main>
+            </AuthShell>
+        </>
     );
 }
 

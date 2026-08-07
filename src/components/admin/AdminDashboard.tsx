@@ -1,14 +1,18 @@
-﻿import { FormEvent } from "react";
+﻿"use client";
+
+import { FormEvent, useCallback, useRef, useState } from "react";
 
 import { AnalyticsView } from "@/components/admin/analytics/AnalyticsView";
+import { AdminSidebar, type NavItem } from "@/components/admin/AdminSidebar";
 import { AuditLogsView } from "@/components/admin/AuditLogsView";
 import { DashboardOverview } from "@/components/admin/DashboardOverview";
 import { MembersView } from "@/components/admin/MembersView";
 import { UsersView } from "@/components/admin/UsersView";
 import { WorkspacesView } from "@/components/admin/WorkspacesView";
-import { Avatar } from "@/components/ui/Avatar";
-import { Icon, type IconName } from "@/components/ui/Icon";
+import { Icon } from "@/components/ui/Icon";
 import { ToastMessage } from "@/components/ui/ToastMessage";
+import { useDialogBehavior } from "@/hooks/useDialogBehavior";
+import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import {
   AdminUser,
   AuthUser,
@@ -99,8 +103,6 @@ type AdminDashboardProps = {
 /** Stable no-op so an omitted `onNotify` does not change identity each render. */
 function noopNotify(): void {}
 
-type NavItem = { key: ViewMode; label: string; icon: IconName };
-
 const platformNav: NavItem[] = [
   { key: "overview", label: "Overview", icon: "grid" },
   { key: "analytics", label: "Analytics", icon: "chart" },
@@ -129,131 +131,159 @@ const viewCopy: Record<ViewMode, { title: string; description: string }> = {
 const subscriptionStatusOptions = ["active", "trialing", "past_due", "expired", "canceled"];
 const workspaceStatusOptions = ["active", "suspended", "revoked"];
 
+const SIDEBAR_STORAGE_KEY = "healthage.admin.sidebarCollapsed";
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
 export function AdminDashboard(props: AdminDashboardProps) {
   const nav = props.isPlatformAdmin ? platformNav : workspaceNav;
   const copy = viewCopy[props.activeView] ?? viewCopy.overview;
   const showOverview = props.activeView === "overview" || props.activeView === "my-workspaces";
 
+  const [isMobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isCollapsed, setCollapsed] = useLocalStorageState<boolean>(SIDEBAR_STORAGE_KEY, false, isBoolean);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+
+  useDialogBehavior({
+    open: isMobileNavOpen,
+    onClose: () => setMobileNavOpen(false),
+    panelRef: mobileNavRef,
+  });
+
+  /** Navigating from the overlay should also dismiss it. */
+  const handleNavigate = useCallback(
+    (view: ViewMode) => {
+      props.setActiveView(view);
+      setMobileNavOpen(false);
+    },
+    [props.setActiveView],
+  );
+
   return (
     <div className="min-h-screen bg-[color:var(--background)]">
       {props.toast ? <ToastMessage type={props.toast.type} message={props.toast.message} /> : null}
 
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col lg:flex-row">
-        {/* ============================================================ SIDEBAR */}
-        <aside className="shrink-0 border-b border-[color:var(--border)] bg-[color:var(--card)] lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
-          <div className="flex h-full flex-col">
-            {/* Brand */}
-            <div className="flex items-center gap-2.5 px-5 py-4 lg:py-5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color:var(--accent)] text-white">
-                <Icon name="shield" size={17} />
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-[0.8125rem] font-semibold leading-tight">HealthAge</p>
-                <p className="truncate text-[0.6875rem] leading-tight text-[color:var(--text-muted)]">Admin Console</p>
-              </div>
-              <span
-                className={`ml-auto ha-badge ${props.isPlatformAdmin ? "ha-badge-warning" : "ha-badge-info"} lg:hidden`}
-              >
-                {props.isPlatformAdmin ? "Platform" : "Workspace"}
-              </span>
-            </div>
+      {/* =========================================================== SIDEBAR */}
+      {/* Desktop rail: fixed, so the main column scrolls independently. */}
+      <aside
+        aria-label="Primary"
+        data-collapsed={isCollapsed}
+        className="ha-shell-sidebar fixed inset-y-0 left-0 z-30 hidden border-r border-[color:var(--border)] lg:block"
+      >
+        <AdminSidebar
+          nav={nav}
+          activeView={props.activeView}
+          onNavigate={handleNavigate}
+          currentUser={props.currentUser}
+          isPlatformAdmin={props.isPlatformAdmin}
+          onSignOut={props.clearSession}
+          collapsed={isCollapsed}
+          onToggleCollapse={() => setCollapsed(!isCollapsed)}
+        />
+      </aside>
 
-            {/* Navigation */}
-            <nav
-              aria-label="Dashboard sections"
-              className="ha-scroll flex gap-1.5 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible lg:px-3 lg:pb-0"
-            >
-              {nav.map((item) => {
-                const isActive = props.activeView === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    aria-current={isActive ? "page" : undefined}
-                    onClick={() => props.setActiveView(item.key)}
-                    className={`ha-nav-item shrink-0 ${isActive ? "ha-nav-item-active" : ""}`}
-                  >
-                    <Icon name={item.icon} size={15} />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </nav>
-
-            {/* Account */}
-            <div className="mt-auto hidden border-t border-[color:var(--border)] p-3 lg:block">
-              <div className="flex items-center gap-2.5 rounded-lg bg-[color:var(--muted)] px-3 py-2.5">
-                <Avatar name={props.currentUser.name} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.8125rem] font-medium leading-tight">{props.currentUser.name}</p>
-                  <p className="truncate text-[0.6875rem] leading-tight text-[color:var(--text-muted)]">
-                    {props.currentUser.email}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-2 px-1">
-                <span className={`ha-badge ${props.isPlatformAdmin ? "ha-badge-warning" : "ha-badge-info"}`}>
-                  {props.isPlatformAdmin ? "Platform admin" : "Workspace admin"}
-                </span>
+      {/* Mobile overlay: a modal surface with the same dialog contract as the
+          detail drawers — Escape closes, focus is trapped, scroll is locked. */}
+      {isMobileNavOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div
+            aria-hidden="true"
+            onClick={() => setMobileNavOpen(false)}
+            className="absolute inset-0 bg-[color:var(--overlay)] backdrop-blur-[3px]"
+            style={{ animation: "ha-fade-in var(--duration) var(--ease)" }}
+          />
+          <div
+            ref={mobileNavRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
+            className="relative h-full w-[17rem] max-w-[85vw] border-r border-[color:var(--border)] shadow-[var(--shadow-xl)]"
+            style={{ animation: "ha-slide-in-left var(--duration-slow) var(--ease-out)" }}
+          >
+            <AdminSidebar
+              nav={nav}
+              activeView={props.activeView}
+              onNavigate={handleNavigate}
+              currentUser={props.currentUser}
+              isPlatformAdmin={props.isPlatformAdmin}
+              onSignOut={props.clearSession}
+              headerAction={
                 <button
                   type="button"
-                  onClick={props.clearSession}
-                  className="ha-btn ha-btn-ghost ha-btn-sm"
-                  title="Sign out"
+                  onClick={() => setMobileNavOpen(false)}
+                  aria-label="Close navigation menu"
+                  className="ha-btn ha-btn-ghost ha-btn-icon ha-btn-sm shrink-0"
                 >
-                  <Icon name="logout" size={13} />
-                  Logout
+                  <Icon name="x" size={15} />
                 </button>
-              </div>
-            </div>
+              }
+            />
           </div>
-        </aside>
+        </div>
+      ) : null}
 
-        {/* ============================================================== MAIN */}
+      {/* ============================================================== MAIN */}
+      <div className="ha-shell-main flex min-h-screen flex-col" data-collapsed={isCollapsed}>
         <main className="min-w-0 flex-1">
-          {/* Page header */}
-          <header className="sticky top-0 z-20 border-b border-[color:var(--border)] bg-[color:var(--card)]/85 px-5 py-4 backdrop-blur-md md:px-8">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h1 className="truncate text-lg font-semibold tracking-[-0.01em] md:text-xl">{copy.title}</h1>
-                <p className="mt-0.5 truncate text-[0.8125rem] text-[color:var(--text-muted)]">{copy.description}</p>
+          {/* --------------------------------------------------- Page header */}
+          <header className="sticky top-0 z-20 border-b border-[color:var(--border)] bg-[color:var(--card)]/80 backdrop-blur-xl">
+            <div className="mx-auto flex h-[var(--header-height)] w-full max-w-[var(--content-max)] items-center gap-3 px-4 md:px-6 xl:px-8">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open navigation menu"
+                aria-expanded={isMobileNavOpen}
+                className="ha-btn ha-btn-ghost ha-btn-icon -ml-1 shrink-0 lg:hidden"
+              >
+                <Icon name="menu" size={18} />
+              </button>
+
+              <div className="min-w-0 flex-1">
+                <h1 className="ha-page-title truncate">{copy.title}</h1>
+                <p className="hidden truncate text-[0.8125rem] leading-tight text-[color:var(--text-muted)] sm:block">
+                  {copy.description}
+                </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                {props.lastRefreshedAt && !props.isLoadingDashboard ? (
-                  <span className="hidden text-xs text-[color:var(--text-subtle)] sm:inline">
-                    Updated {new Date(props.lastRefreshedAt).toLocaleTimeString()}
-                  </span>
-                ) : null}
-                {props.isLoadingDashboard ? (
-                  <span className="hidden text-xs text-[color:var(--text-subtle)] sm:inline">Loadingâ€¦</span>
-                ) : null}
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  aria-live="polite"
+                  className="hidden text-xs tabular-nums text-[color:var(--text-subtle)] md:inline"
+                >
+                  {props.isLoadingDashboard
+                    ? "Refreshing…"
+                    : props.lastRefreshedAt
+                      ? `Updated ${new Date(props.lastRefreshedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`
+                      : ""}
+                </span>
+
                 <button
                   type="button"
                   onClick={props.onRefreshData}
                   disabled={props.isLoadingDashboard}
-                  className="ha-btn ha-btn-secondary"
+                  className="ha-btn ha-btn-secondary px-2.5 sm:px-3"
+                  aria-label="Refresh dashboard data"
                 >
                   <Icon
                     name="refresh"
                     size={14}
                     className={props.isLoadingDashboard ? "animate-spin" : undefined}
                   />
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  onClick={props.clearSession}
-                  className="ha-btn ha-btn-ghost lg:hidden"
-                  title="Sign out"
-                >
-                  <Icon name="logout" size={14} />
+                  <span className="hidden sm:inline">Refresh</span>
                 </button>
               </div>
             </div>
           </header>
 
-          <div className="space-y-5 px-5 py-6 md:px-8">
+          <div
+            key={props.activeView}
+            className="ha-enter mx-auto w-full max-w-[var(--content-max)] space-y-5 px-4 py-5 md:px-6 md:py-6 xl:px-8"
+          >
             {/* ================================================== OVERVIEW */}
             {showOverview ? (
               <DashboardOverview

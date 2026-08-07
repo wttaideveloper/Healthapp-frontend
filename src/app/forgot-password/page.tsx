@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
+import { AuthLink, AuthShell } from "@/components/auth/AuthShell";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ToastMessage } from "@/components/ui/ToastMessage";
 import { callApi } from "@/lib/admin/api";
@@ -68,71 +69,121 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-3xl px-6 py-10">
+    <>
       {toast ? <ToastMessage type={toast.type} message={toast.message} /> : null}
 
-      <section className="rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold">Reset Password</h1>
-        <p className="mt-1 text-sm text-foreground/70">Request OTP first, then reset using email + OTP + new password.</p>
-
-        <form onSubmit={onForgotPassword} className="mt-6 grid gap-3">
-          <input
-            value={forgotEmail}
-            onChange={(e) => setForgotEmail(e.target.value)}
-            placeholder="user@example.com"
-            type="email"
-            className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-            required
-          />
+      <AuthShell
+        title="Reset your password"
+        subtitle={
+          isOtpSent
+            ? "Enter the 6-digit code we sent, then choose a new password."
+            : "We'll email you a 6-digit code. Enter it on the next step to set a new password."
+        }
+        footer={
+          <p>
+            Remembered it? <AuthLink href="/">Back to sign in</AuthLink>
+          </p>
+        }
+      >
+        {/* Step 1 — request the code. Stays visible after sending so the address
+            can be corrected and the code re-requested without a reload. */}
+        <form onSubmit={onForgotPassword} className="grid gap-4">
+          <div className="ha-field">
+            <label className="ha-label" htmlFor="forgot-email">
+              Email address
+            </label>
+            <input
+              id="forgot-email"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              placeholder="you@company.com"
+              type="email"
+              autoComplete="email"
+              className="ha-input"
+              required
+            />
+          </div>
           <button
             type="submit"
             disabled={isBusy}
-            className="rounded-xl bg-accent-2 px-4 py-2 text-sm font-semibold text-foreground disabled:opacity-60"
+            data-loading={isBusy || undefined}
+            className={`ha-btn ha-btn-lg w-full ${isOtpSent ? "ha-btn-secondary" : "ha-btn-primary"}`}
           >
-            {isBusy ? "Please wait..." : "Send OTP"}
+            {isBusy ? "Sending…" : isOtpSent ? "Resend code" : "Send code"}
           </button>
         </form>
 
         {isOtpSent ? (
-          <form onSubmit={onResetPassword} className="mt-6 grid gap-3">
-            <input
-              value={resetEmail}
-              onChange={(e) => setResetEmail(e.target.value)}
-              placeholder="user@example.com"
-              type="email"
-              className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-              required
-            />
-            <input
-              value={resetOtp}
-              onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="123456"
-              inputMode="numeric"
-              pattern="\d{6}"
-              className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-              required
-            />
-            <PasswordInput
-              value={resetNewPassword}
-              onChange={(e) => setResetNewPassword(e.target.value)}
-              placeholder="New password"
-              className="rounded-xl border border-border bg-white px-3 py-2 text-sm"
-              required
-            />
-            <button
-              type="submit"
-              disabled={isBusy}
-              className="rounded-xl bg-foreground px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {isBusy ? "Please wait..." : "Reset Password"}
-            </button>
-          </form>
-        ) : null}
+          <>
+            <div className="my-6 flex items-center gap-3" aria-hidden="true">
+              <span className="ha-divider flex-1" />
+              <span className="ha-eyebrow">Then</span>
+              <span className="ha-divider flex-1" />
+            </div>
 
-        <p className="mt-5 text-sm text-foreground/70">
-          Back to login? <a href="/" className="text-accent underline">Sign in</a>
-        </p>
-      </section>
-    </main>
+            <form onSubmit={onResetPassword} className="ha-enter grid gap-4">
+              <div className="ha-field">
+                <label className="ha-label" htmlFor="reset-email">
+                  Email address
+                </label>
+                <input
+                  id="reset-email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  type="email"
+                  autoComplete="email"
+                  className="ha-input"
+                  required
+                />
+              </div>
+
+              <div className="ha-field">
+                <label className="ha-label" htmlFor="reset-otp">
+                  Verification code
+                </label>
+                <input
+                  id="reset-otp"
+                  value={resetOtp}
+                  onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  className="ha-input text-center text-lg tracking-[0.5em] tabular-nums"
+                  required
+                />
+                <p className="ha-hint">6 digits, valid for 10 minutes.</p>
+              </div>
+
+              <div className="ha-field">
+                <label className="ha-label" htmlFor="reset-password">
+                  New password
+                </label>
+                <PasswordInput
+                  id="reset-password"
+                  value={resetNewPassword}
+                  onChange={(e) => setResetNewPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                  className="ha-input"
+                  required
+                />
+                <p className="ha-hint">Between 8 and 128 characters.</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isBusy}
+                data-loading={isBusy || undefined}
+                className="ha-btn ha-btn-primary ha-btn-lg mt-1 w-full"
+              >
+                {isBusy ? "Updating…" : "Update password"}
+              </button>
+            </form>
+          </>
+        ) : null}
+      </AuthShell>
+    </>
   );
 }

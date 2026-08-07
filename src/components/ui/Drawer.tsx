@@ -1,17 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { Icon } from "@/components/ui/Icon";
-
-const focusableSelector = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
+import { useDialogBehavior } from "@/hooks/useDialogBehavior";
 
 type DrawerProps = {
   open: boolean;
@@ -19,90 +11,49 @@ type DrawerProps = {
   title: string;
   /** Rendered under the title in the header. */
   subtitle?: string;
+  /** Optional status chip or badge shown beside the title. */
+  eyebrow?: ReactNode;
   /** Pinned to the bottom of the drawer, outside the scroll area. */
   footer?: ReactNode;
+  /** `md` suits property lists; `lg` suits drawers with tables inside. */
+  size?: "md" | "lg";
   children: ReactNode;
 };
 
 /**
- * Right-side drawer.
+ * Right-side detail panel.
  *
- * Implements the dialog interaction contract by hand (no dependency):
- * Escape to close, click-outside to close, focus moved in on open and
- * restored on close, Tab cycling trapped inside, and background scroll locked.
+ * Responsive by design: a full-height sheet on phones (a 448px panel on a 360px
+ * screen would be a horizontal scroll), and an inset, rounded, floating panel
+ * from `sm` up so it reads as a layer above the page rather than a second page.
+ *
+ * The dialog contract (Escape, focus trap, focus restore, scroll lock) comes
+ * from `useDialogBehavior`, shared with the mobile sidebar.
  */
-export function Drawer({ open, onClose, title, subtitle, footer, children }: DrawerProps) {
+export function Drawer({
+  open,
+  onClose,
+  title,
+  subtitle,
+  eyebrow,
+  footer,
+  size = "md",
+  children,
+}: DrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!open) return;
-
-      // A nested alert dialog owns both Escape and focus while it is open.
-      // Listeners on `document` fire in registration order, so the drawer must
-      // defer explicitly rather than rely on stopPropagation.
-      if (document.querySelector('[role="alertdialog"]')) return;
-
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      const panel = panelRef.current;
-      if (!panel) return;
-
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-        (element) => element.offsetParent !== null || element === document.activeElement,
-      );
-      if (focusable.length === 0) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    },
-    [open, onClose],
-  );
-
-  useEffect(() => {
-    if (!open) return;
-
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    // Defer so the panel is mounted and the transition has started.
-    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 40);
-    document.addEventListener("keydown", handleKeyDown, true);
-
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.removeEventListener("keydown", handleKeyDown, true);
-      document.body.style.overflow = previousOverflow;
-      restoreFocusRef.current?.focus?.();
-    };
-  }, [open, handleKeyDown]);
+  useDialogBehavior({ open, onClose, panelRef, initialFocusRef: closeButtonRef });
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end sm:p-3">
       <div
         aria-hidden="true"
         onClick={onClose}
-        className="absolute inset-0 bg-[rgba(15,23,42,0.35)] backdrop-blur-[2px]"
-        style={{ animation: "ha-fade-in 160ms var(--ease)" }}
+        className="absolute inset-0 bg-[color:var(--overlay)] backdrop-blur-[3px]"
+        style={{ animation: "ha-fade-in var(--duration) var(--ease)" }}
       />
 
       <div
@@ -110,12 +61,15 @@ export function Drawer({ open, onClose, title, subtitle, footer, children }: Dra
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="ha-scroll relative flex h-full w-full max-w-md flex-col border-l border-[color:var(--border)] bg-[color:var(--card)] shadow-[var(--shadow-lg)]"
-        style={{ animation: "ha-slide-in 200ms var(--ease)" }}
+        className={`ha-scroll relative flex h-full w-full flex-col border-[color:var(--border)] bg-[color:var(--card)] shadow-[var(--shadow-xl)] sm:rounded-[var(--radius-2xl)] sm:border ${
+          size === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"
+        }`}
+        style={{ animation: "ha-slide-in var(--duration-slow) var(--ease-out)" }}
       >
         <header className="flex items-start justify-between gap-3 border-b border-[color:var(--border)] px-5 py-4">
-          <div className="min-w-0">
-            <h2 className="truncate text-[0.9375rem] font-semibold tracking-[-0.01em]">{title}</h2>
+          <div className="min-w-0 flex-1">
+            {eyebrow ? <div className="mb-1.5 flex flex-wrap items-center gap-1.5">{eyebrow}</div> : null}
+            <h2 className="truncate text-[color:var(--foreground)] ha-section-title">{title}</h2>
             {subtitle ? (
               <p className="mt-0.5 truncate text-[0.8125rem] text-[color:var(--text-muted)]">{subtitle}</p>
             ) : null}
@@ -125,16 +79,18 @@ export function Drawer({ open, onClose, title, subtitle, footer, children }: Dra
             type="button"
             onClick={onClose}
             aria-label="Close panel"
-            className="ha-btn ha-btn-ghost ha-btn-sm shrink-0"
+            className="ha-btn ha-btn-ghost ha-btn-icon ha-btn-sm shrink-0"
           >
             <Icon name="x" size={15} />
           </button>
         </header>
 
-        <div className="ha-scroll flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        <div className="ha-scroll flex-1 overflow-y-auto overscroll-contain px-5 py-5">{children}</div>
 
         {footer ? (
-          <footer className="border-t border-[color:var(--border)] bg-[color:var(--card-2)] px-5 py-3.5">{footer}</footer>
+          <footer className="border-t border-[color:var(--border)] bg-[color:var(--card-2)] px-5 py-3.5 sm:rounded-b-[var(--radius-2xl)]">
+            {footer}
+          </footer>
         ) : null}
       </div>
     </div>

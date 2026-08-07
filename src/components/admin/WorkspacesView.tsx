@@ -869,7 +869,7 @@ export function WorkspacesView(props: WorkspacesViewProps) {
                           type="button"
                           onClick={() => void openWorkspace(workspace.id)}
                           aria-label={`View details for ${workspace.name}`}
-                          className="block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                          className="ha-tap-target block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
                         >
                           {workspace.name}
                         </button>
