@@ -34,6 +34,13 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  // Read from a ref so a parent re-render — a toast expiring, say — cannot
+  // re-run the effect below, whose cleanup hands focus back to the caller.
+  const onCancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +51,7 @@ export function ConfirmDialog({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onCancel();
+        onCancelRef.current();
       }
     }
 
@@ -55,7 +62,7 @@ export function ConfirmDialog({
       document.removeEventListener("keydown", onKeyDown, true);
       restoreFocusRef.current?.focus?.();
     };
-  }, [open, onCancel]);
+  }, [open]);
 
   if (!open) return null;
 

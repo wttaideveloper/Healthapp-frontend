@@ -27,6 +27,7 @@ export function ActionMenu({ items, label, align = "right" }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
@@ -76,12 +77,17 @@ export function ActionMenu({ items, label, align = "right" }: ActionMenuProps) {
     if (item.disabled) return;
     setOpen(false);
     setActiveIndex(-1);
+    // Focus goes back to the trigger before the action runs: the item button is
+    // about to unmount, and an action that opens a dialog will remember whatever
+    // holds focus now as the place to return to when it closes.
+    triggerRef.current?.focus();
     item.onSelect();
   }
 
   return (
     <div ref={containerRef} className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         aria-label={label}
         aria-haspopup="menu"

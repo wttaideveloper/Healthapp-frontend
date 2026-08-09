@@ -75,7 +75,8 @@ type AdminDashboardProps = {
   setUpdateNotes: (value: string) => void;
   updateExpiresAt: string;
   setUpdateExpiresAt: (value: string) => void;
-  onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  /** Resolves true when the save landed, so the update dialog knows to close. */
+  onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   memberEmail: string;
   setMemberEmail: (value: string) => void;
   memberRole: string;

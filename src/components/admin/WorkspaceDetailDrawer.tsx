@@ -7,7 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 import { SeatUsageBar } from "@/components/ui/SeatUsageBar";
 import { EmptyState } from "@/components/ui/Section";
 import { RoleBadge, StatusBadge } from "@/components/ui/StatusBadge";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatFriendlyDate } from "@/lib/format";
 import { getInitials } from "@/lib/admin/users";
 import {
   describeEntitlementBlock,
@@ -323,7 +323,7 @@ export function WorkspaceDetailDrawer(props: WorkspaceDetailDrawerProps) {
           </DetailRow>
           <DetailRow label="Expires">
             {workspace.expiresAt ? (
-              formatDateTime(workspace.expiresAt)
+              formatFriendlyDate(workspace.expiresAt)
             ) : (
               <span className="font-normal text-[color:var(--text-subtle)]">No expiry set</span>
             )}

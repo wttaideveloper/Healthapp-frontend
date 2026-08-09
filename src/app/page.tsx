@@ -8,6 +8,12 @@ import { callApi } from "@/lib/admin/api";
 import { isDevelopmentEnvironment } from "@/lib/admin/environment";
 import { tokenStorageKey, userStorageKey } from "@/lib/admin/storage";
 import {
+  emptyWorkspaceUpdateValues,
+  workspaceUpdateValues,
+  type WorkspaceUpdateValues,
+} from "@/lib/admin/workspaces";
+import { calendarDateToIso } from "@/lib/format";
+import {
   AdminUser,
   AuthUser,
   DashboardMetrics,
@@ -31,6 +37,29 @@ function isPlatformAdmin(user: AuthUser | null): boolean {
 
 function isWorkspaceManager(entitlement: EntitlementResponse | null): boolean {
   return entitlement?.workspace?.role === "owner" || entitlement?.workspace?.role === "admin";
+}
+
+/**
+ * Rewrites the API's engineer-facing rejections into something an office
+ * administrator can act on. Anything unrecognised is passed through unchanged
+ * rather than swallowed — a message we did not anticipate is still better than
+ * a shrug.
+ */
+function friendlyWorkspaceError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  if (!message) return fallback;
+
+  const normalized = message.toLowerCase();
+  if (normalized.includes("seatlimit cannot be lower")) {
+    return "Number of licenses cannot be lower than the number of people already in this organization.";
+  }
+  if (normalized.includes("workspace not found")) {
+    return "That organization no longer exists. Refresh the list and try again.";
+  }
+  if (normalized.startsWith("body/") || normalized.includes("expected") || normalized.includes("invalid_type")) {
+    return fallback;
+  }
+  return message;
 }
 
 export default function Home() {
@@ -59,6 +88,7 @@ export default function Home() {
   const [workspaceSubscriptionStatus, setWorkspaceSubscriptionStatus] = useState("active");
   const [workspaceStatus, setWorkspaceStatus] = useState("active");
   const [workspaceNotes, setWorkspaceNotes] = useState("");
+  /** Calendar date (`YYYY-MM-DD`) from the picker; converted to ISO on submit. */
   const [workspaceExpiresAt, setWorkspaceExpiresAt] = useState("");
 
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
@@ -68,6 +98,7 @@ export default function Home() {
   const [updateSubscriptionStatus, setUpdateSubscriptionStatus] = useState("active");
   const [updateStatus, setUpdateStatus] = useState("active");
   const [updateNotes, setUpdateNotes] = useState("");
+  /** Calendar date (`YYYY-MM-DD`) from the picker; converted to ISO on submit. */
   const [updateExpiresAt, setUpdateExpiresAt] = useState("");
 
   const [memberEmail, setMemberEmail] = useState("");
@@ -88,6 +119,8 @@ export default function Home() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const toastTimerRef = useRef<number | null>(null);
+  /** Workspace whose values are already loaded into the update form. */
+  const hydratedWorkspaceIdRef = useRef<string | null>(null);
 
   const showDevAdminBootstrapTools = isDevelopmentEnvironment();
   const platformAdmin = isPlatformAdmin(currentUser);
@@ -177,6 +210,36 @@ export default function Home() {
     if (!token) return;
     void loadDashboard(token, currentUser);
   }, [token, currentUser?.id]);
+
+  function applyUpdateValues(values: WorkspaceUpdateValues): void {
+    setUpdateSeatLimit(values.seatLimit);
+    setUpdatePlan(values.plan);
+    setUpdateSubscriptionStatus(values.subscriptionStatus);
+    setUpdateStatus(values.status);
+    setUpdateNotes(values.notes);
+    setUpdateExpiresAt(values.expiresAt);
+  }
+
+  /**
+   * Mirrors the selected workspace into the update form.
+   *
+   * It keys off the resolved workspace rather than the id because selection can
+   * land before the workspace list does — `loadDashboard` auto-selects the first
+   * row, and that race is what used to leave the seat limit blank. The ref makes
+   * hydration happen once per workspace, so a background refresh never
+   * overwrites edits that are already in progress.
+   */
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      hydratedWorkspaceIdRef.current = null;
+      applyUpdateValues(emptyWorkspaceUpdateValues);
+      return;
+    }
+    if (hydratedWorkspaceIdRef.current === selectedWorkspaceId || !selectedWorkspace) return;
+
+    hydratedWorkspaceIdRef.current = selectedWorkspaceId;
+    applyUpdateValues(workspaceUpdateValues(selectedWorkspace));
+  }, [selectedWorkspaceId, selectedWorkspace]);
 
   async function loadDashboard(authToken: string, user: AuthUser | null): Promise<void> {
     setIsLoadingDashboard(true);
@@ -406,7 +469,8 @@ export default function Home() {
             ownerEmail: workspaceOwnerEmail,
             seatLimit: workspaceSeatLimit ? Number(workspaceSeatLimit) : null,
             plan: workspacePlan,
-            expiresAt: workspaceExpiresAt || null,
+            // The picker holds a calendar date; the API keeps taking an ISO instant.
+            expiresAt: calendarDateToIso(workspaceExpiresAt),
             subscriptionStatus: workspaceSubscriptionStatus,
             status: workspaceStatus,
             notes: workspaceNotes || null,
@@ -414,19 +478,20 @@ export default function Home() {
         },
         token,
       );
-      showToast("success", "Workspace created.");
+      showToast("success", "Organization created successfully.");
       await loadDashboard(token, currentUser);
       setActiveView("workspaces");
     } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to create workspace");
+      showToast("error", friendlyWorkspaceError(error, "Could not create the organization. Please check the details and try again."));
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function onUpdateWorkspace(event: FormEvent<HTMLFormElement>): Promise<void> {
+  /** Resolves true when the save landed, so the update dialog knows to close. */
+  async function onUpdateWorkspace(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
-    if (!token || !selectedWorkspaceId) return;
+    if (!token || !selectedWorkspaceId) return false;
     setIsBusy(true);
     try {
       await callApi(
@@ -438,7 +503,10 @@ export default function Home() {
             ownerEmail: updateOwnerEmail || undefined,
             seatLimit: updateSeatLimit ? Number(updateSeatLimit) : undefined,
             plan: updatePlan || undefined,
-            expiresAt: updateExpiresAt || undefined,
+            // The picker holds a calendar date; the API keeps taking an ISO
+            // instant. An emptied picker is an explicit "no expiry", which the
+            // API has always expressed as null.
+            expiresAt: calendarDateToIso(updateExpiresAt),
             subscriptionStatus: updateSubscriptionStatus || undefined,
             status: updateStatus || undefined,
             notes: updateNotes || undefined,
@@ -446,10 +514,15 @@ export default function Home() {
         },
         token,
       );
-      showToast("success", "Workspace updated.");
+      showToast("success", "Organization updated successfully.");
+      // Re-read the saved record into the form once the refresh lands, so the
+      // directory and the form both show what the server now holds.
+      hydratedWorkspaceIdRef.current = null;
       await loadDashboard(token, currentUser);
+      return true;
     } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to update workspace");
+      showToast("error", friendlyWorkspaceError(error, "Could not update the organization. Please check the details and try again."));
+      return false;
     } finally {
       setIsBusy(false);
     }

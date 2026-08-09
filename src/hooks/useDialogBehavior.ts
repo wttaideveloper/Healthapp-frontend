@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * The interaction contract every overlay in this product must honour.
@@ -31,10 +31,37 @@ type DialogBehaviorOptions = {
 };
 
 export function useDialogBehavior({ open, onClose, panelRef, initialFocusRef }: DialogBehaviorOptions): void {
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!open) return;
+  /**
+   * The effect below captures the element that focus returns to, so it has to
+   * run exactly once per open — not again every time a parent re-renders and
+   * hands over a freshly-allocated `onClose`. A panel containing a form
+   * re-renders on every keystroke, and re-running would snap focus out of the
+   * field being typed in. Reading the callbacks from a ref keeps them current
+   * without making them dependencies.
+   */
+  const latestRef = useRef({ onClose, initialFocusRef });
 
+  useEffect(() => {
+    latestRef.current = { onClose, initialFocusRef };
+  });
+
+  useEffect(() => {
+    if (!open) return;
+
+    const restoreFocusTo = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    // Defer so the panel is mounted and its entrance transition has started.
+    const focusTimer = window.setTimeout(() => {
+      const target =
+        latestRef.current.initialFocusRef?.current ??
+        panelRef.current?.querySelector<HTMLElement>(focusableSelector) ??
+        null;
+      target?.focus();
+    }, 40);
+
+    function handleKeyDown(event: KeyboardEvent) {
       // A nested alert dialog owns both Escape and focus while it is open.
       // Listeners on `document` fire in registration order, so this must defer
       // explicitly rather than rely on stopPropagation.
@@ -42,7 +69,7 @@ export function useDialogBehavior({ open, onClose, panelRef, initialFocusRef }: 
 
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        latestRef.current.onClose();
         return;
       }
 
@@ -66,25 +93,7 @@ export function useDialogBehavior({ open, onClose, panelRef, initialFocusRef }: 
         event.preventDefault();
         first.focus();
       }
-    },
-    [open, onClose, panelRef],
-  );
-
-  useEffect(() => {
-    if (!open) return;
-
-    const restoreFocusTo = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    // Defer so the panel is mounted and its entrance transition has started.
-    const focusTimer = window.setTimeout(() => {
-      const target =
-        initialFocusRef?.current ??
-        panelRef.current?.querySelector<HTMLElement>(focusableSelector) ??
-        null;
-      target?.focus();
-    }, 40);
+    }
 
     document.addEventListener("keydown", handleKeyDown, true);
 
@@ -94,5 +103,5 @@ export function useDialogBehavior({ open, onClose, panelRef, initialFocusRef }: 
       document.body.style.overflow = previousOverflow;
       restoreFocusTo?.focus?.();
     };
-  }, [open, handleKeyDown, panelRef, initialFocusRef]);
+  }, [open, panelRef]);
 }

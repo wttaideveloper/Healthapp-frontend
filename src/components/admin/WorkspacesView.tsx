@@ -3,8 +3,10 @@
 import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import { WorkspaceDetailDrawer } from "@/components/admin/WorkspaceDetailDrawer";
+import { WorkspaceUpdateDialog } from "@/components/admin/WorkspaceUpdateDialog";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/ActionMenu";
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
+import { DateField } from "@/components/ui/DateField";
 import { FilterSelect, type FilterOption } from "@/components/ui/FilterSelect";
 import { Icon } from "@/components/ui/Icon";
 import { Pagination } from "@/components/ui/Pagination";
@@ -14,8 +16,17 @@ import { EmptyState, SectionCard } from "@/components/ui/Section";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { copyToClipboard } from "@/lib/admin/clipboard";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatFriendlyDate } from "@/lib/format";
 import { isPageSize, paginate, type PageSize } from "@/lib/admin/users";
+import {
+  clearFieldError,
+  describedBy,
+  focusFirstInvalidField,
+  subscriptionStatusLabels,
+  subscriptionStatusOptions,
+  workspaceStatusLabels,
+  workspaceStatusOptions,
+} from "@/lib/admin/workspaceForm";
 import {
   buildOwnerIndex,
   countActiveWorkspaceFilters,
@@ -24,10 +35,13 @@ import {
   getSeatUsage,
   resolveOwner,
   sortWorkspaces,
+  validateWorkspaceCreateDraft,
   type EntitlementFilter,
   type SeatFilter,
   type SortDirection,
   type SubscriptionFilter,
+  type WorkspaceFormErrors,
+  type WorkspaceFormField,
   type WorkspaceSortKey,
   type WorkspaceStatusFilter,
 } from "@/lib/admin/workspaces";
@@ -62,7 +76,7 @@ type WorkspacesViewProps = {
   workspaceExpiresAt: string;
   setWorkspaceExpiresAt: (value: string) => void;
   onCreateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  // Update form — preserved verbatim.
+  // Update form — passed straight through to the dialog behind each row's menu.
   updateSeatLimit: string;
   setUpdateSeatLimit: (value: string) => void;
   updatePlan: string;
@@ -75,7 +89,8 @@ type WorkspacesViewProps = {
   setUpdateNotes: (value: string) => void;
   updateExpiresAt: string;
   setUpdateExpiresAt: (value: string) => void;
-  onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  /** Resolves true when the save landed, so the update dialog knows to close. */
+  onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   // Invite — reuses the existing member handler.
   memberEmail: string;
   setMemberEmail: (value: string) => void;
@@ -83,9 +98,6 @@ type WorkspacesViewProps = {
   setMemberRole: (value: string) => void;
   onAddMember: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
-
-const subscriptionStatusOptions = ["active", "trialing", "past_due", "expired", "canceled"];
-const workspaceStatusOptions = ["active", "suspended", "revoked"];
 
 const statusFilterOptions: ReadonlyArray<FilterOption<WorkspaceStatusFilter>> = [
   { value: "all", label: "All statuses" },
@@ -120,6 +132,16 @@ const sortableColumns: Array<{ key: WorkspaceSortKey; label: string }> = [
   { key: "name", label: "Workspace" },
   { key: "owner", label: "Owner" },
 ];
+
+/** Inputs of the create card, keyed by the field each one collects. */
+const createFieldIds: Partial<Record<WorkspaceFormField, string>> = {
+  name: "ws-name",
+  ownerEmail: "ws-owner",
+  seatLimit: "ws-seats",
+  plan: "ws-plan",
+  expiresAt: "ws-expires",
+  notes: "ws-notes",
+};
 
 function SortButton({
   label,
@@ -176,7 +198,9 @@ export function WorkspacesView(props: WorkspacesViewProps) {
     isPageSize,
   );
   const [drawerWorkspaceId, setDrawerWorkspaceId] = useState<string | null>(null);
+  const [updateDialogWorkspaceId, setUpdateDialogWorkspaceId] = useState<string | null>(null);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [createErrors, setCreateErrors] = useState<WorkspaceFormErrors>({});
 
   const deferredSearch = useDeferredValue(filters.search);
   const effectiveFilters = useMemo(() => ({ ...filters, search: deferredSearch }), [filters, deferredSearch]);
@@ -206,6 +230,11 @@ export function WorkspacesView(props: WorkspacesViewProps) {
   const drawerWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === drawerWorkspaceId) ?? null,
     [workspaces, drawerWorkspaceId],
+  );
+
+  const updateDialogWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === updateDialogWorkspaceId) ?? null,
+    [workspaces, updateDialogWorkspaceId],
   );
 
   // Members are fetched per selected workspace; only show them when the loaded
@@ -247,6 +276,44 @@ export function WorkspacesView(props: WorkspacesViewProps) {
     [onWorkspaceSelectionChange, selectedWorkspaceId],
   );
 
+  /**
+   * Opening the update dialog selects the workspace, which is what loads its
+   * saved values into the form the dialog renders.
+   */
+  const openUpdateDialog = useCallback(
+    async (workspaceId: string) => {
+      setUpdateDialogWorkspaceId(workspaceId);
+      if (workspaceId === selectedWorkspaceId) return;
+      await onWorkspaceSelectionChange(workspaceId);
+    },
+    [onWorkspaceSelectionChange, selectedWorkspaceId],
+  );
+
+  /**
+   * The create form checks itself before handing the event to the owning page,
+   * which still builds and sends the exact same payload it always did. The
+   * checks only exist so the admin reads "Please enter an organization name."
+   * instead of a schema error from the server.
+   */
+  async function handleCreateSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const errors = validateWorkspaceCreateDraft({
+      name: props.workspaceName,
+      ownerEmail: props.workspaceOwnerEmail,
+      seatLimit: props.workspaceSeatLimit,
+      plan: props.workspacePlan,
+      expiresAt: props.workspaceExpiresAt,
+      notes: props.workspaceNotes,
+    });
+
+    setCreateErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      focusFirstInvalidField(errors, createFieldIds);
+      return;
+    }
+    await props.onCreateWorkspace(event);
+  }
+
   const buildRowActions = useCallback(
     (workspace: Workspace): ActionMenuItem[] => [
       {
@@ -254,6 +321,13 @@ export function WorkspacesView(props: WorkspacesViewProps) {
         label: "View details",
         icon: "chevronRight",
         onSelect: () => void openWorkspace(workspace.id),
+      },
+      {
+        key: "update",
+        label: "Update workspace",
+        icon: "settings",
+        onSelect: () => void openUpdateDialog(workspace.id),
+        hint: "Licenses, subscription, expiry, access",
       },
       {
         key: "copy-id",
@@ -288,7 +362,7 @@ export function WorkspacesView(props: WorkspacesViewProps) {
         onSelect: onRefreshData,
       },
     ],
-    [handleCopy, isLoadingDashboard, onRefreshData, openWorkspace],
+    [handleCopy, isLoadingDashboard, onRefreshData, openUpdateDialog, openWorkspace],
   );
 
   const showSkeleton = isLoadingDashboard && workspaces.length === 0;
@@ -297,262 +371,223 @@ export function WorkspacesView(props: WorkspacesViewProps) {
 
   return (
     <section className="space-y-5">
-      {/* ============================================ Create / Update */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <SectionCard
-          title="Create Workspace"
-          description="Provision a paid organization after payment is confirmed"
-          icon="plus"
-        >
-          <form className="grid gap-3.5" onSubmit={props.onCreateWorkspace}>
-            <div>
-              <label className="ha-label" htmlFor="ws-name">
-                Workspace name
-              </label>
-              <input
-                id="ws-name"
-                value={props.workspaceName}
-                onChange={(e) => props.setWorkspaceName(e.target.value)}
-                className="ha-input"
-                placeholder="Clinic ABC"
-                required
-              />
-            </div>
-            <div>
-              <label className="ha-label" htmlFor="ws-owner">
-                Owner email
-              </label>
-              <input
-                id="ws-owner"
-                value={props.workspaceOwnerEmail}
-                onChange={(e) => props.setWorkspaceOwnerEmail(e.target.value)}
-                className="ha-input"
-                placeholder="owner@clinic.com"
-                type="email"
-                required
-              />
-              <p className="mt-1.5 text-xs text-[color:var(--text-subtle)]">
-                If no account exists yet, the seat activates automatically on sign-up.
+      {/* ====================================================== Create */}
+      {/* Updating lives behind each row's action menu — see WorkspaceUpdateDialog. */}
+      <SectionCard
+        title="Create Workspace"
+        description="Create a new organization and assign its administrator, licenses, and subscription."
+        icon="plus"
+      >
+        {/* `noValidate` hands validation to our own friendly messages instead
+            of the browser's generic "Please fill out this field" bubble. */}
+        <form className="grid gap-3.5" noValidate onSubmit={(event) => void handleCreateSubmit(event)}>
+          <div>
+            <label className="ha-label" htmlFor="ws-name">
+              Organization Name
+            </label>
+            <input
+              id="ws-name"
+              value={props.workspaceName}
+              onChange={(e) => {
+                props.setWorkspaceName(e.target.value);
+                clearFieldError(setCreateErrors, "name");
+              }}
+              className="ha-input"
+              placeholder="ABC Medical Center"
+              maxLength={200}
+              aria-invalid={createErrors.name ? true : undefined}
+              aria-describedby={describedBy(createErrors.name && "ws-name-error")}
+            />
+            {createErrors.name ? (
+              <p id="ws-name-error" role="alert" className="ha-error-text">
+                {createErrors.name}
               </p>
-            </div>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <div>
-                <label className="ha-label" htmlFor="ws-seats">
-                  Seat limit
-                </label>
-                <input
-                  id="ws-seats"
-                  value={props.workspaceSeatLimit}
-                  onChange={(e) => props.setWorkspaceSeatLimit(e.target.value)}
-                  className="ha-input"
-                  placeholder="25"
-                  type="number"
-                  min={1}
-                />
-              </div>
-              <div>
-                <label className="ha-label" htmlFor="ws-plan">
-                  Plan
-                </label>
-                <input
-                  id="ws-plan"
-                  value={props.workspacePlan}
-                  onChange={(e) => props.setWorkspacePlan(e.target.value)}
-                  className="ha-input"
-                  placeholder="organization"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <div>
-                <label className="ha-label" htmlFor="ws-sub-status">
-                  Subscription status
-                </label>
-                <select
-                  id="ws-sub-status"
-                  value={props.workspaceSubscriptionStatus}
-                  onChange={(e) => props.setWorkspaceSubscriptionStatus(e.target.value)}
-                  className="ha-input"
-                >
-                  {subscriptionStatusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="ha-label" htmlFor="ws-status">
-                  Workspace status
-                </label>
-                <select
-                  id="ws-status"
-                  value={props.workspaceStatus}
-                  onChange={(e) => props.setWorkspaceStatus(e.target.value)}
-                  className="ha-input"
-                >
-                  {workspaceStatusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            ) : null}
+          </div>
+          <div>
+            <label className="ha-label" htmlFor="ws-owner">
+              Organization Administrator Email
+            </label>
+            <input
+              id="ws-owner"
+              value={props.workspaceOwnerEmail}
+              onChange={(e) => {
+                props.setWorkspaceOwnerEmail(e.target.value);
+                clearFieldError(setCreateErrors, "ownerEmail");
+              }}
+              className="ha-input"
+              placeholder="admin@abcclinic.com"
+              type="email"
+              aria-invalid={createErrors.ownerEmail ? true : undefined}
+              aria-describedby={describedBy(
+                "ws-owner-hint",
+                createErrors.ownerEmail && "ws-owner-error",
+              )}
+            />
+            <p id="ws-owner-hint" className="ha-hint">
+              This person manages the organization. If they do not have an account yet, their licence activates
+              automatically when they sign up.
+            </p>
+            {createErrors.ownerEmail ? (
+              <p id="ws-owner-error" role="alert" className="ha-error-text">
+                {createErrors.ownerEmail}
+              </p>
+            ) : null}
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2">
             <div>
-              <label className="ha-label" htmlFor="ws-expires">
-                Expires at <span className="font-normal text-[color:var(--text-subtle)]">(optional)</span>
+              <label className="ha-label" htmlFor="ws-seats">
+                Number of Licenses
               </label>
               <input
-                id="ws-expires"
-                value={props.workspaceExpiresAt}
-                onChange={(e) => props.setWorkspaceExpiresAt(e.target.value)}
+                id="ws-seats"
+                value={props.workspaceSeatLimit}
+                onChange={(e) => {
+                  props.setWorkspaceSeatLimit(e.target.value);
+                  clearFieldError(setCreateErrors, "seatLimit");
+                }}
                 className="ha-input"
-                placeholder="2026-12-31T00:00:00.000Z"
+                placeholder="10"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                aria-invalid={createErrors.seatLimit ? true : undefined}
+                aria-describedby={describedBy(
+                  "ws-seats-hint",
+                  createErrors.seatLimit && "ws-seats-error",
+                )}
               />
+              <p id="ws-seats-hint" className="ha-hint">
+                Maximum number of users allowed in this organization.
+              </p>
+              {createErrors.seatLimit ? (
+                <p id="ws-seats-error" role="alert" className="ha-error-text">
+                  {createErrors.seatLimit}
+                </p>
+              ) : null}
             </div>
             <div>
-              <label className="ha-label" htmlFor="ws-notes">
-                Notes <span className="font-normal text-[color:var(--text-subtle)]">(optional)</span>
+              <label className="ha-label" htmlFor="ws-plan">
+                License Type
               </label>
               <input
-                id="ws-notes"
-                value={props.workspaceNotes}
-                onChange={(e) => props.setWorkspaceNotes(e.target.value)}
+                id="ws-plan"
+                value={props.workspacePlan}
+                onChange={(e) => {
+                  props.setWorkspacePlan(e.target.value);
+                  clearFieldError(setCreateErrors, "plan");
+                }}
                 className="ha-input"
-                placeholder="Paid by invoice"
+                placeholder="organization"
+                maxLength={100}
+                aria-invalid={createErrors.plan ? true : undefined}
+                aria-describedby={describedBy("ws-plan-hint", createErrors.plan && "ws-plan-error")}
               />
+              <p id="ws-plan-hint" className="ha-hint">
+                The plan this organization is billed on.
+              </p>
+              {createErrors.plan ? (
+                <p id="ws-plan-error" role="alert" className="ha-error-text">
+                  {createErrors.plan}
+                </p>
+              ) : null}
             </div>
-            <button type="submit" disabled={isBusy} className="ha-btn ha-btn-primary mt-1 w-full">
-              <Icon name="plus" size={14} />
-              {isBusy ? "Working…" : "Create Workspace"}
-            </button>
-          </form>
-        </SectionCard>
-
-        <SectionCard
-          title="Update Workspace"
-          description="Change seats, plan, or revoke organization access"
-          icon="refresh"
-        >
-          <form className="grid gap-3.5" onSubmit={props.onUpdateWorkspace}>
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2">
             <div>
-              <label className="ha-label" htmlFor="ws-select">
-                Workspace
+              <label className="ha-label" htmlFor="ws-sub-status">
+                Subscription Status
               </label>
               <select
-                id="ws-select"
-                value={selectedWorkspaceId}
-                onChange={(e) => void onWorkspaceSelectionChange(e.target.value)}
+                id="ws-sub-status"
+                value={props.workspaceSubscriptionStatus}
+                onChange={(e) => props.setWorkspaceSubscriptionStatus(e.target.value)}
                 className="ha-input"
               >
-                <option value="">Select workspace</option>
-                {workspaces.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
+                {subscriptionStatusOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {subscriptionStatusLabels[option] ?? option}
                   </option>
                 ))}
               </select>
             </div>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <div>
-                <label className="ha-label" htmlFor="ws-update-seats">
-                  Seat limit
-                </label>
-                <input
-                  id="ws-update-seats"
-                  value={props.updateSeatLimit}
-                  onChange={(e) => props.setUpdateSeatLimit(e.target.value)}
-                  className="ha-input"
-                  placeholder="25"
-                  type="number"
-                  min={1}
-                />
-              </div>
-              <div>
-                <label className="ha-label" htmlFor="ws-update-plan">
-                  Plan
-                </label>
-                <input
-                  id="ws-update-plan"
-                  value={props.updatePlan}
-                  onChange={(e) => props.setUpdatePlan(e.target.value)}
-                  className="ha-input"
-                  placeholder="organization"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              <div>
-                <label className="ha-label" htmlFor="ws-update-sub">
-                  Subscription status
-                </label>
-                <select
-                  id="ws-update-sub"
-                  value={props.updateSubscriptionStatus}
-                  onChange={(e) => props.setUpdateSubscriptionStatus(e.target.value)}
-                  className="ha-input"
-                >
-                  {subscriptionStatusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="ha-label" htmlFor="ws-update-status">
-                  Workspace status
-                </label>
-                <select
-                  id="ws-update-status"
-                  value={props.updateStatus}
-                  onChange={(e) => props.setUpdateStatus(e.target.value)}
-                  className="ha-input"
-                >
-                  {workspaceStatusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
             <div>
-              <label className="ha-label" htmlFor="ws-update-expires">
-                Expires at
+              <label className="ha-label" htmlFor="ws-status">
+                Organization Status
               </label>
-              <input
-                id="ws-update-expires"
-                value={props.updateExpiresAt}
-                onChange={(e) => props.setUpdateExpiresAt(e.target.value)}
+              <select
+                id="ws-status"
+                value={props.workspaceStatus}
+                onChange={(e) => props.setWorkspaceStatus(e.target.value)}
                 className="ha-input"
-                placeholder="2026-12-31T00:00:00.000Z"
-              />
+              >
+                {workspaceStatusOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {workspaceStatusLabels[option] ?? option}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="ha-label" htmlFor="ws-update-notes">
-                Notes
-              </label>
-              <input
-                id="ws-update-notes"
-                value={props.updateNotes}
-                onChange={(e) => props.setUpdateNotes(e.target.value)}
-                className="ha-input"
-                placeholder="Renewed for 2026"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={!selectedWorkspaceId || isBusy}
-              className="ha-btn ha-btn-primary mt-1 w-full"
-            >
-              <Icon name="check" size={14} />
-              {isBusy ? "Working…" : "Update Workspace"}
-            </button>
-          </form>
-        </SectionCard>
-      </div>
+          </div>
+          <div>
+            <label className="ha-label" htmlFor="ws-expires">
+              Subscription Expiry Date{" "}
+              <span className="font-normal text-[color:var(--text-subtle)]">(optional)</span>
+            </label>
+            <DateField
+              id="ws-expires"
+              label="Subscription expiry date"
+              value={props.workspaceExpiresAt}
+              onChange={(value) => {
+                props.setWorkspaceExpiresAt(value);
+                clearFieldError(setCreateErrors, "expiresAt");
+              }}
+              placeholder="Select a date"
+              invalid={Boolean(createErrors.expiresAt)}
+              describedBy={describedBy("ws-expires-hint", createErrors.expiresAt && "ws-expires-error")}
+            />
+            <p id="ws-expires-hint" className="ha-hint">
+              The day access ends. Leave empty for a subscription that does not expire.
+            </p>
+            {createErrors.expiresAt ? (
+              <p id="ws-expires-error" role="alert" className="ha-error-text">
+                {createErrors.expiresAt}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <label className="ha-label" htmlFor="ws-notes">
+              Internal Notes <span className="font-normal text-[color:var(--text-subtle)]">(optional)</span>
+            </label>
+            <input
+              id="ws-notes"
+              value={props.workspaceNotes}
+              onChange={(e) => {
+                props.setWorkspaceNotes(e.target.value);
+                clearFieldError(setCreateErrors, "notes");
+              }}
+              className="ha-input"
+              placeholder="Annual subscription renewed."
+              maxLength={1000}
+              aria-invalid={createErrors.notes ? true : undefined}
+              aria-describedby={describedBy("ws-notes-hint", createErrors.notes && "ws-notes-error")}
+            />
+            <p id="ws-notes-hint" className="ha-hint">
+              Only visible to platform administrators.
+            </p>
+            {createErrors.notes ? (
+              <p id="ws-notes-error" role="alert" className="ha-error-text">
+                {createErrors.notes}
+              </p>
+            ) : null}
+          </div>
+          <button type="submit" disabled={isBusy} className="ha-btn ha-btn-primary mt-1 w-full">
+            <Icon name="plus" size={14} />
+            {isBusy ? "Working…" : "Create Workspace"}
+          </button>
+        </form>
+      </SectionCard>
 
       {/* ================================================== Directory */}
       <SectionCard
@@ -829,7 +864,7 @@ export function WorkspacesView(props: WorkspacesViewProps) {
                         </td>
                         <td className="whitespace-nowrap text-[color:var(--text-muted)]">
                           {workspace.expiresAt ? (
-                            formatDateTime(workspace.expiresAt)
+                            formatFriendlyDate(workspace.expiresAt)
                           ) : (
                             <span className="text-[color:var(--text-subtle)]">No expiry</span>
                           )}
@@ -941,6 +976,27 @@ export function WorkspacesView(props: WorkspacesViewProps) {
         memberRole={props.memberRole}
         setMemberRole={props.setMemberRole}
         onAddMember={props.onAddMember}
+      />
+
+      {/* ============================================= Update dialog */}
+      <WorkspaceUpdateDialog
+        open={updateDialogWorkspaceId !== null}
+        workspace={updateDialogWorkspace}
+        isBusy={isBusy}
+        onClose={() => setUpdateDialogWorkspaceId(null)}
+        updateSeatLimit={props.updateSeatLimit}
+        setUpdateSeatLimit={props.setUpdateSeatLimit}
+        updatePlan={props.updatePlan}
+        setUpdatePlan={props.setUpdatePlan}
+        updateSubscriptionStatus={props.updateSubscriptionStatus}
+        setUpdateSubscriptionStatus={props.setUpdateSubscriptionStatus}
+        updateStatus={props.updateStatus}
+        setUpdateStatus={props.setUpdateStatus}
+        updateNotes={props.updateNotes}
+        setUpdateNotes={props.setUpdateNotes}
+        updateExpiresAt={props.updateExpiresAt}
+        setUpdateExpiresAt={props.setUpdateExpiresAt}
+        onUpdateWorkspace={props.onUpdateWorkspace}
       />
     </section>
   );

@@ -1,3 +1,4 @@
+import { isCalendarDate, isoToCalendarDate } from "@/lib/format";
 import type { AdminUser, Workspace, WorkspaceMember } from "@/types/admin";
 
 /**
@@ -311,3 +312,148 @@ export function orderMembersForDisplay(members: WorkspaceMember[]): WorkspaceMem
     return a.email.localeCompare(b.email, undefined, { sensitivity: "base" });
   });
 }
+
+/* -------------------------------------------------------- form validation */
+
+/**
+ * Front-of-house wording for the rules the API already enforces.
+ *
+ * These checks mirror `createWorkspaceBodySchema` / `updateWorkspaceBodySchema`
+ * one for one — they do not add, relax, or tighten anything. Their whole job is
+ * to say "Please enter an organization name." before the request goes out,
+ * instead of letting the admin read `body/name must NOT have fewer than 2
+ * characters` back from the server.
+ */
+export type WorkspaceFormField = "name" | "ownerEmail" | "seatLimit" | "plan" | "expiresAt" | "notes";
+export type WorkspaceFormErrors = Partial<Record<WorkspaceFormField, string>>;
+
+export type WorkspaceCreateDraft = {
+  name: string;
+  ownerEmail: string;
+  seatLimit: string;
+  plan: string;
+  /** Calendar date (`YYYY-MM-DD`), or "" when no expiry is set. */
+  expiresAt: string;
+  notes: string;
+};
+
+/** Update leaves out the fields the update form does not expose. */
+export type WorkspaceUpdateDraft = Pick<WorkspaceCreateDraft, "seatLimit" | "plan" | "expiresAt" | "notes">;
+
+/** The update form's fields, as strings, exactly as the inputs hold them. */
+export type WorkspaceUpdateValues = {
+  seatLimit: string;
+  plan: string;
+  subscriptionStatus: string;
+  status: string;
+  notes: string;
+  /** Calendar date (`YYYY-MM-DD`), or "" when the workspace has no expiry. */
+  expiresAt: string;
+};
+
+/**
+ * A saved workspace rendered as update-form values.
+ *
+ * One definition, two callers: the page hydrates the form from it, and the
+ * update dialog compares against it to decide whether there are unsaved
+ * changes. If those two ever disagreed, the dialog would either nag about
+ * edits nobody made or drop edits somebody did.
+ */
+export function workspaceUpdateValues(workspace: Workspace): WorkspaceUpdateValues {
+  return {
+    seatLimit: workspace.seatLimit === null ? "" : String(workspace.seatLimit),
+    plan: workspace.plan,
+    subscriptionStatus: workspace.subscriptionStatus,
+    status: workspace.status,
+    notes: workspace.notes ?? "",
+    expiresAt: isoToCalendarDate(workspace.expiresAt),
+  };
+}
+
+/** What the update form holds when no organization is selected. */
+export const emptyWorkspaceUpdateValues: WorkspaceUpdateValues = {
+  seatLimit: "",
+  plan: "organization",
+  subscriptionStatus: "active",
+  status: "active",
+  notes: "",
+  expiresAt: "",
+};
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Shared by both forms; `seatLimit` is required only when creating. */
+function validateSeatLimit(value: string, required: boolean): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return required ? "Please enter the number of licenses." : null;
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 1) return "Number of licenses must be at least 1.";
+  return null;
+}
+
+function validateExpiry(value: string): string | null {
+  // Expiry stays optional, exactly as the API has it — only a value that is
+  // present and unusable is an error.
+  if (!value.trim()) return null;
+  return isCalendarDate(value) ? null : "Please select a subscription expiry date.";
+}
+
+function validateNotes(value: string): string | null {
+  return value.trim().length > 1000 ? "Internal notes must be 1000 characters or fewer." : null;
+}
+
+function validatePlan(value: string): string | null {
+  if (!value.trim()) return "Please enter a license type, for example “organization”.";
+  return value.trim().length > 100 ? "License type must be 100 characters or fewer." : null;
+}
+
+export function validateWorkspaceCreateDraft(draft: WorkspaceCreateDraft): WorkspaceFormErrors {
+  const errors: WorkspaceFormErrors = {};
+  const name = draft.name.trim();
+  const ownerEmail = draft.ownerEmail.trim();
+
+  if (!name) errors.name = "Please enter an organization name.";
+  else if (name.length < 2) errors.name = "Organization name must be at least 2 characters.";
+  else if (name.length > 200) errors.name = "Organization name must be 200 characters or fewer.";
+
+  if (!ownerEmail) errors.ownerEmail = "Please enter the administrator's email.";
+  else if (!emailPattern.test(ownerEmail)) {
+    errors.ownerEmail = "Please enter a valid email address, for example admin@abcclinic.com.";
+  }
+
+  const seatLimit = validateSeatLimit(draft.seatLimit, true);
+  if (seatLimit) errors.seatLimit = seatLimit;
+
+  const plan = validatePlan(draft.plan);
+  if (plan) errors.plan = plan;
+
+  const expiresAt = validateExpiry(draft.expiresAt);
+  if (expiresAt) errors.expiresAt = expiresAt;
+
+  const notes = validateNotes(draft.notes);
+  if (notes) errors.notes = notes;
+
+  return errors;
+}
+
+export function validateWorkspaceUpdateDraft(draft: WorkspaceUpdateDraft): WorkspaceFormErrors {
+  const errors: WorkspaceFormErrors = {};
+
+  // A blank seat limit still means "leave this as it is", which is how the
+  // update endpoint has always read an omitted field.
+  const seatLimit = validateSeatLimit(draft.seatLimit, false);
+  if (seatLimit) errors.seatLimit = seatLimit;
+
+  const plan = validatePlan(draft.plan);
+  if (plan) errors.plan = plan;
+
+  const expiresAt = validateExpiry(draft.expiresAt);
+  if (expiresAt) errors.expiresAt = expiresAt;
+
+  const notes = validateNotes(draft.notes);
+  if (notes) errors.notes = notes;
+
+  return errors;
+}
+
