@@ -6,7 +6,15 @@ import { AdminAuthScreen } from "@/components/admin/AdminAuthScreen";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { callApi } from "@/lib/admin/api";
 import { isDevelopmentEnvironment } from "@/lib/admin/environment";
-import { tokenStorageKey, userStorageKey } from "@/lib/admin/storage";
+import {
+  activeViewStorageKey,
+  defaultViewFor,
+  isViewAllowed,
+  isViewMode,
+  tokenStorageKey,
+  userStorageKey,
+} from "@/lib/admin/storage";
+import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import {
   emptyWorkspaceUpdateValues,
   workspaceUpdateValues,
@@ -67,7 +75,20 @@ export default function Home() {
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [entitlement, setEntitlement] = useState<EntitlementResponse | null>(null);
-  const [activeView, setActiveView] = useState<ViewMode>("overview");
+  /**
+   * The open section, remembered across reloads.
+   *
+   * The app is one client-rendered route, so a refresh used to drop the admin
+   * back on the home view. The stored value is filtered through the current
+   * account's permissions on the way out rather than corrected in an effect:
+   * that way a section the signed-in role cannot open can never be rendered,
+   * not even for one frame.
+   */
+  const [storedView, setStoredView] = useLocalStorageState<ViewMode>(
+    activeViewStorageKey,
+    "overview",
+    isViewMode,
+  );
 
   const [loginEmail, setLoginEmail] = useState("admin@conference.org");
   const [loginPassword, setLoginPassword] = useState("Password123!");
@@ -125,6 +146,8 @@ export default function Home() {
   const showDevAdminBootstrapTools = isDevelopmentEnvironment();
   const platformAdmin = isPlatformAdmin(currentUser);
   const workspaceManager = isWorkspaceManager(entitlement);
+
+  const activeView = isViewAllowed(storedView, platformAdmin) ? storedView : defaultViewFor(platformAdmin);
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
@@ -278,7 +301,9 @@ export default function Home() {
         setSelectedWorkspaceId("");
         setMembers([]);
       }
-      setActiveView("my-workspaces");
+      // The view is no longer forced here: `activeView` already falls back to
+      // this account's home section whenever the remembered one is out of
+      // bounds, and forcing it would undo a reload onto Members or Analytics.
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load dashboard";
       setDashboardError(message);
@@ -367,7 +392,9 @@ export default function Home() {
       }
 
       saveSession(data.accessToken, data.user);
-      setActiveView(data.user.role === "admin" ? "overview" : "my-workspaces");
+      // A fresh sign-in starts at this account's home section rather than
+      // wherever the previous session — possibly a different person — left off.
+      setStoredView(defaultViewFor(data.user.role === "admin"));
       showToast("success", "Signed in successfully.");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Login failed");
@@ -480,7 +507,7 @@ export default function Home() {
       );
       showToast("success", "Organization created successfully.");
       await loadDashboard(token, currentUser);
-      setActiveView("workspaces");
+      setStoredView("workspaces");
     } catch (error) {
       showToast("error", friendlyWorkspaceError(error, "Could not create the organization. Please check the details and try again."));
     } finally {
@@ -684,7 +711,7 @@ export default function Home() {
       currentUser={currentUser}
       entitlement={entitlement}
       activeView={activeView}
-      setActiveView={setActiveView}
+      setActiveView={setStoredView}
       isPlatformAdmin={platformAdmin}
       onRefreshData={() => {
         if (token) void loadDashboard(token, currentUser);
