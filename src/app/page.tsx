@@ -201,8 +201,8 @@ export default function Home() {
     };
   }, [platformAdmin, workspaces, myWorkspaces, users, members, pendingInvitationsScope]);
 
-  function showToast(type: ToastType, message: string): void {
-    const nextToast = { id: Date.now(), type, message };
+  function showToast(type: ToastType, message: string, description?: string): void {
+    const nextToast = { id: Date.now(), type, message, description };
     setToast(nextToast);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => {
@@ -481,12 +481,29 @@ export default function Home() {
     }
   }
 
-  async function onCreateWorkspace(event: FormEvent<HTMLFormElement>): Promise<void> {
+  /** Returns the create form to its initial state after a successful save. */
+  function resetWorkspaceCreateForm(): void {
+    setWorkspaceName("");
+    setWorkspaceOwnerEmail("");
+    setWorkspaceSeatLimit("");
+    setWorkspacePlan("organization");
+    setWorkspaceSubscriptionStatus("active");
+    setWorkspaceStatus("active");
+    setWorkspaceNotes("");
+    setWorkspaceExpiresAt("");
+  }
+
+  /**
+   * Resolves the id of the workspace that was created, so the directory can
+   * take the admin straight to it. Null means nothing was created — a failed
+   * request, or no session — and the caller must not celebrate.
+   */
+  async function onCreateWorkspace(event: FormEvent<HTMLFormElement>): Promise<string | null> {
     event.preventDefault();
-    if (!token) return;
+    if (!token) return null;
     setIsBusy(true);
     try {
-      await callApi(
+      const created = await callApi<Workspace>(
         "admin/workspaces",
         {
           method: "POST",
@@ -505,11 +522,17 @@ export default function Home() {
         },
         token,
       );
-      showToast("success", "Organization created successfully.");
+      showToast("success", "Organization created successfully.", "The organization is now ready to manage.");
+      resetWorkspaceCreateForm();
+      // Awaited before returning, so the directory already holds the new row by
+      // the time it is asked to scroll to it — however slow the round trip was.
       await loadDashboard(token, currentUser);
       setStoredView("workspaces");
+      return created.id;
     } catch (error) {
+      // The entered values stay put so the admin can fix and resubmit.
       showToast("error", friendlyWorkspaceError(error, "Could not create the organization. Please check the details and try again."));
+      return null;
     } finally {
       setIsBusy(false);
     }

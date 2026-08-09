@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { WorkspaceDetailDrawer } from "@/components/admin/WorkspaceDetailDrawer";
 import { WorkspaceUpdateDialog } from "@/components/admin/WorkspaceUpdateDialog";
@@ -75,7 +75,8 @@ type WorkspacesViewProps = {
   setWorkspaceNotes: (value: string) => void;
   workspaceExpiresAt: string;
   setWorkspaceExpiresAt: (value: string) => void;
-  onCreateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  /** Resolves the new workspace's id, or null when creation failed. */
+  onCreateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<string | null>;
   // Update form — passed straight through to the dialog behind each row's menu.
   updateSeatLimit: string;
   setUpdateSeatLimit: (value: string) => void;
@@ -201,6 +202,12 @@ export function WorkspacesView(props: WorkspacesViewProps) {
   const [updateDialogWorkspaceId, setUpdateDialogWorkspaceId] = useState<string | null>(null);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [createErrors, setCreateErrors] = useState<WorkspaceFormErrors>({});
+  /** The workspace just created — marked "New" and revealed in the directory. */
+  const [newWorkspaceId, setNewWorkspaceId] = useState<string | null>(null);
+  const directoryRef = useRef<HTMLElement>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  /** Guards the one-off scroll so later renders do not keep yanking the page. */
+  const revealedWorkspaceIdRef = useRef<string | null>(null);
 
   const deferredSearch = useDeferredValue(filters.search);
   const effectiveFilters = useMemo(() => ({ ...filters, search: deferredSearch }), [filters, deferredSearch]);
@@ -226,6 +233,62 @@ export function WorkspacesView(props: WorkspacesViewProps) {
   useEffect(() => {
     setPage(1);
   }, [effectiveFilters, sortKey, sortDirection, pageSize]);
+
+  /**
+   * Walks a freshly created workspace into view.
+   *
+   * The directory it lands in may be searched, filtered, sorted and paginated,
+   * so getting there is a short sequence rather than one step: clear filters
+   * that would hide it, turn to the page it sits on, then scroll and focus the
+   * row. Each step ends the pass and lets the next render re-enter with the
+   * list already updated, which keeps the arithmetic honest — no guessing what
+   * `sorted` will look like after a state change that has not happened yet.
+   */
+  useEffect(() => {
+    if (!newWorkspaceId) return;
+    // Still waiting on the refreshed list.
+    if (!workspaces.some((workspace) => workspace.id === newWorkspaceId)) return;
+
+    // Filters are component state, never a saved preference, so resetting them
+    // here costs the admin nothing they had stored.
+    if (!sorted.some((workspace) => workspace.id === newWorkspaceId)) {
+      setFilters(defaultWorkspaceFilters);
+      return;
+    }
+
+    const index = sorted.findIndex((workspace) => workspace.id === newWorkspaceId);
+    const targetPage = Math.floor(index / pageSize) + 1;
+    if (targetPage !== page) {
+      setPage(targetPage);
+      return;
+    }
+
+    if (revealedWorkspaceIdRef.current === newWorkspaceId) return;
+    revealedWorkspaceIdRef.current = newWorkspaceId;
+
+    // The table and the card list both render this row; only one of them is
+    // displayed at a given width, and scrolling the hidden one does nothing.
+    const candidates = Array.from(
+      directoryRef.current?.querySelectorAll<HTMLElement>(`[data-workspace-row="${newWorkspaceId}"]`) ?? [],
+    );
+    const target = candidates.find((element) => element.offsetParent !== null) ?? candidates[0];
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Focus lands on the row itself: it is the keyboard entry point into the
+    // record, and it gives the highlight a non-visual counterpart.
+    target.focus({ preventScroll: true });
+  }, [newWorkspaceId, workspaces, sorted, page, pageSize]);
+
+  /** The "New" marking is a nudge, not a state — it retires on its own. */
+  useEffect(() => {
+    if (!newWorkspaceId) return;
+
+    highlightTimerRef.current = window.setTimeout(() => setNewWorkspaceId(null), 6000);
+    return () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    };
+  }, [newWorkspaceId]);
 
   const drawerWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === drawerWorkspaceId) ?? null,
@@ -311,7 +374,15 @@ export function WorkspacesView(props: WorkspacesViewProps) {
       focusFirstInvalidField(errors, createFieldIds);
       return;
     }
-    await props.onCreateWorkspace(event);
+
+    // Only a confirmed save starts the reveal; a rejected one leaves the form
+    // and the directory exactly as they were.
+    const createdId = await props.onCreateWorkspace(event);
+    if (!createdId) return;
+
+    setCreateErrors({});
+    revealedWorkspaceIdRef.current = null;
+    setNewWorkspaceId(createdId);
   }
 
   const buildRowActions = useCallback(
@@ -590,6 +661,8 @@ export function WorkspacesView(props: WorkspacesViewProps) {
       </SectionCard>
 
       {/* ================================================== Directory */}
+      {/* Wrapper exists so the reveal can scope its row lookup to the directory. */}
+      <section ref={directoryRef}>
       <SectionCard
         title="Workspace Directory"
         description="Search, filter, and inspect every organization workspace"
@@ -803,13 +876,15 @@ export function WorkspacesView(props: WorkspacesViewProps) {
                     const owner = resolveOwner(workspace, ownerIndex);
                     const usage = getSeatUsage(workspace);
                     const isSelected = workspace.id === selectedWorkspaceId;
+                    const isNew = workspace.id === newWorkspaceId;
                     const rowMembers = isSelected ? members : [];
 
                     return (
                       <tr
                         key={workspace.id}
+                        data-workspace-row={workspace.id}
                         tabIndex={0}
-                        aria-label={`${workspace.name}, owned by ${owner.name ?? owner.email}. Press Enter to view details.`}
+                        aria-label={`${workspace.name}${isNew ? ", just created" : ""}, owned by ${owner.name ?? owner.email}. Press Enter to view details.`}
                         onClick={() => void openWorkspace(workspace.id)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
@@ -818,7 +893,7 @@ export function WorkspacesView(props: WorkspacesViewProps) {
                           }
                         }}
                         className={`cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--accent)] ${
-                          isSelected ? "ha-table-row-selected" : "ha-table-row-hover"
+                          isNew ? "ha-row-new" : isSelected ? "ha-table-row-selected" : "ha-table-row-hover"
                         }`}
                       >
                         <td>
@@ -827,7 +902,10 @@ export function WorkspacesView(props: WorkspacesViewProps) {
                               <Icon name="building" size={15} />
                             </span>
                             <span className="min-w-0">
-                              <span className="block truncate font-medium">{workspace.name}</span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate font-medium">{workspace.name}</span>
+                                {isNew ? <span className="ha-badge ha-badge-success shrink-0">New</span> : null}
+                              </span>
                               <span className="flex items-center gap-1.5">
                                 {rowMembers.length > 0 ? (
                                   <AvatarGroup
@@ -892,22 +970,36 @@ export function WorkspacesView(props: WorkspacesViewProps) {
               {pageData.rows.map((workspace) => {
                 const owner = resolveOwner(workspace, ownerIndex);
                 const usage = getSeatUsage(workspace);
+                const isNew = workspace.id === newWorkspaceId;
 
                 return (
-                  <li key={workspace.id} className="px-5 py-4">
+                  <li
+                    key={workspace.id}
+                    data-workspace-row={workspace.id}
+                    // Programmatically focusable only — the card's own controls
+                    // stay the keyboard route into the record.
+                    tabIndex={-1}
+                    aria-label={isNew ? `${workspace.name}, just created` : undefined}
+                    className={`px-5 py-4 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--accent)] ${
+                      isNew ? "ha-row-new" : ""
+                    }`}
+                  >
                     <div className="flex items-start gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:var(--accent-soft)] text-[color:var(--accent)]">
                         <Icon name="building" size={16} />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <button
-                          type="button"
-                          onClick={() => void openWorkspace(workspace.id)}
-                          aria-label={`View details for ${workspace.name}`}
-                          className="ha-tap-target block max-w-full truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-                        >
-                          {workspace.name}
-                        </button>
+                        <span className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void openWorkspace(workspace.id)}
+                            aria-label={`View details for ${workspace.name}`}
+                            className="ha-tap-target block min-w-0 truncate text-left text-[0.875rem] font-semibold transition-colors hover:text-[color:var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                          >
+                            {workspace.name}
+                          </button>
+                          {isNew ? <span className="ha-badge ha-badge-success shrink-0">New</span> : null}
+                        </span>
                         <p className="mt-0.5 truncate text-xs text-[color:var(--text-muted)]">
                           {owner.name ? `${owner.name} · ` : ""}
                           {owner.email}
@@ -960,6 +1052,7 @@ export function WorkspacesView(props: WorkspacesViewProps) {
           </>
         ) : null}
       </SectionCard>
+      </section>
 
       {/* ==================================================== Drawer */}
       <WorkspaceDetailDrawer

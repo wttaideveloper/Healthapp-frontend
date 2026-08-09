@@ -60,7 +60,8 @@ type AdminDashboardProps = {
   setWorkspaceNotes: (value: string) => void;
   workspaceExpiresAt: string;
   setWorkspaceExpiresAt: (value: string) => void;
-  onCreateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  /** Resolves the new workspace's id, or null when creation failed. */
+  onCreateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<string | null>;
   updateOwnerEmail: string;
   setUpdateOwnerEmail: (value: string) => void;
   updateSeatLimit: string;
@@ -164,7 +165,13 @@ export function AdminDashboard(props: AdminDashboardProps) {
 
   return (
     <div className="min-h-screen bg-[color:var(--background)]">
-      {props.toast ? <ToastMessage type={props.toast.type} message={props.toast.message} /> : null}
+      {props.toast ? (
+        <ToastMessage
+          type={props.toast.type}
+          message={props.toast.message}
+          description={props.toast.description}
+        />
+      ) : null}
 
       {/* =========================================================== SIDEBAR */}
       {/* Desktop rail: fixed, so the main column scrolls independently. */}

@@ -141,6 +141,8 @@ export type ToastState = {
   id: number;
   type: ToastType;
   message: string;
+  /** Optional second line, e.g. what the admin can do next. */
+  description?: string;
 } | null;
 
 export type DashboardMetrics = {

@@ -740,6 +740,43 @@
     background: var(--accent-soft);
   }
 
+  /* ------------------------------------------------- Just-created row
+     Marks the record an admin has this second created, in a table they may
+     never have scrolled. The tint fades on its own; the "New" badge rendered
+     beside the name is what actually carries the meaning, so the cue survives
+     for anyone who cannot separate these two greens. Listed after the zebra
+     rules so it wins on even rows too. */
+  .ha-table-zebra tbody tr.ha-row-new,
+  .ha-table tbody tr.ha-row-new,
+  .ha-row-new {
+    background: var(--success-soft);
+    animation: ha-row-new-in 600ms var(--ease-out);
+  }
+
+  .ha-table tbody tr.ha-row-new > td:first-child {
+    box-shadow: inset 2px 0 0 var(--success);
+  }
+
+  /* The card list has no cell to hang the rail on. */
+  li.ha-row-new {
+    box-shadow: inset 2px 0 0 var(--success);
+  }
+
+  @keyframes ha-row-new-in {
+    from {
+      background: color-mix(in srgb, var(--success-soft) 35%, transparent);
+    }
+    to {
+      background: var(--success-soft);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ha-row-new {
+      animation: none;
+    }
+  }
+
   /* Numeric columns align on the decimal. */
   .ha-table .ha-num {
     text-align: right;
