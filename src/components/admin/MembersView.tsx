@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { MemberDetailDrawer } from "@/components/admin/MemberDetailDrawer";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/ActionMenu";
@@ -10,11 +18,14 @@ import { FilterSelect, type FilterOption } from "@/components/ui/FilterSelect";
 import { Icon } from "@/components/ui/Icon";
 import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput } from "@/components/ui/SearchInput";
+import { OrganizationSelect, type OrganizationOption } from "@/components/ui/OrganizationSelect";
 import { EmptyState, SectionCard } from "@/components/ui/Section";
+import { SeatUsageBar } from "@/components/ui/SeatUsageBar";
 import { RoleBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { copyToClipboard } from "@/lib/admin/clipboard";
 import { isPageSize, paginate, type PageSize } from "@/lib/admin/users";
+import { getSeatUsage } from "@/lib/admin/workspaces";
 import {
   buildMemberIdentityIndex,
   countActiveMemberFilters,
@@ -118,6 +129,23 @@ function SortButton({
   );
 }
 
+/** One row of the organization picker, flattened from either workspace shape. */
+type OrganizationRow = {
+  id: string;
+  name: string;
+  seatLimit: number | null;
+  activeSeatCount: number;
+  badges: ReactNode;
+};
+
+/** "1 of 10 licenses used" — the phrasing the whole page uses for seats. */
+function describeLicenseUsage(used: number, limit: number | null): string {
+  if (limit === null || limit <= 0) {
+    return `${used} ${used === 1 ? "license" : "licenses"} used · no limit set`;
+  }
+  return `${used} of ${limit} ${limit === 1 ? "license" : "licenses"} used`;
+}
+
 function StatChip({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
     <div className="flex items-baseline gap-1.5">
@@ -148,15 +176,28 @@ export function MembersView(props: MembersViewProps) {
   const [pageSize, setPageSize] = useLocalStorageState<PageSize>("healthage.admin.members.pageSize", 25, isPageSize);
   const [drawerMemberId, setDrawerMemberId] = useState<string | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<WorkspaceMember | null>(null);
+  const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
 
   const deferredSearch = useDeferredValue(filters.search);
   const effectiveFilters = useMemo(() => ({ ...filters, search: deferredSearch }), [filters, deferredSearch]);
 
   const identityIndex = useMemo(() => buildMemberIdentityIndex(users), [users]);
 
+  /**
+   * Members are fetched one organization at a time, and the previous list stays
+   * in state until the new request resolves. Every row carries the organization
+   * it belongs to, so scoping by that id is what keeps rows from the organization
+   * you just left off the screen — no extra state, and it covers the initial
+   * dashboard load too.
+   */
+  const scopedMembers = useMemo(
+    () => (selectedWorkspaceId ? members.filter((member) => member.workspaceId === selectedWorkspaceId) : []),
+    [members, selectedWorkspaceId],
+  );
+
   const filtered = useMemo(
-    () => filterMembers(members, effectiveFilters, identityIndex),
-    [members, effectiveFilters, identityIndex],
+    () => filterMembers(scopedMembers, effectiveFilters, identityIndex),
+    [scopedMembers, effectiveFilters, identityIndex],
   );
   const sorted = useMemo(
     () => sortMembers(filtered, sortKey, sortDirection, identityIndex),
@@ -164,8 +205,8 @@ export function MembersView(props: MembersViewProps) {
   );
   const pageData = useMemo(() => paginate(sorted, page, pageSize), [sorted, page, pageSize]);
 
-  const summary = useMemo(() => summarizeMemberList(members), [members]);
-  const pendingInvitations = useMemo(() => getPendingInvitations(members), [members]);
+  const summary = useMemo(() => summarizeMemberList(scopedMembers), [scopedMembers]);
+  const pendingInvitations = useMemo(() => getPendingInvitations(scopedMembers), [scopedMembers]);
   const activeFilterCount = useMemo(() => countActiveMemberFilters(effectiveFilters), [effectiveFilters]);
 
   useEffect(() => {
@@ -183,8 +224,83 @@ export function MembersView(props: MembersViewProps) {
   }, [selectedWorkspaceId]);
 
   const drawerMember = useMemo(
-    () => members.find((member) => member.id === drawerMemberId) ?? null,
-    [members, drawerMemberId],
+    () => scopedMembers.find((member) => member.id === drawerMemberId) ?? null,
+    [scopedMembers, drawerMemberId],
+  );
+
+  /**
+   * Organizations to choose between. A platform admin picks from every
+   * workspace; a workspace manager picks from the ones they belong to. Both
+   * shapes carry the seat fields, so the licence line reads the same either way
+   * — and the manager path is the only place their seat limit is available at
+   * all, since `selectedWorkspace` is fed from the admin-only list.
+   */
+  const organizations = useMemo<OrganizationRow[]>(
+    () =>
+      isPlatformAdmin
+        ? props.workspaces.map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            seatLimit: workspace.seatLimit,
+            activeSeatCount: workspace.activeSeatCount,
+            badges: <StatusBadge value={workspace.status} />,
+          }))
+        : props.myWorkspaces.map((workspace) => ({
+            id: workspace.id,
+            name: workspace.name,
+            seatLimit: workspace.seatLimit,
+            activeSeatCount: workspace.activeSeatCount,
+            badges: (
+              <>
+                <RoleBadge value={workspace.role} />
+                <StatusBadge value={workspace.status} />
+              </>
+            ),
+          })),
+    [isPlatformAdmin, props.workspaces, props.myWorkspaces],
+  );
+
+  const organizationOptions = useMemo<OrganizationOption[]>(
+    () =>
+      organizations.map((organization) => ({
+        id: organization.id,
+        name: organization.name,
+        detail: describeLicenseUsage(organization.activeSeatCount, organization.seatLimit),
+        badges: organization.badges,
+      })),
+    [organizations],
+  );
+
+  const selectedOrganization = useMemo(
+    () => organizations.find((organization) => organization.id === selectedWorkspaceId) ?? null,
+    [organizations, selectedWorkspaceId],
+  );
+
+  /**
+   * Licence pressure for the organization on screen, counted from the members
+   * actually loaded rather than the cached `activeSeatCount`, so it moves the
+   * moment an invitation is sent or a seat is revoked.
+   */
+  const licenseUsage = useMemo(
+    () => getSeatUsage({ activeSeatCount: summary.seatsUsed, seatLimit: selectedOrganization?.seatLimit ?? null }),
+    [summary.seatsUsed, selectedOrganization],
+  );
+
+  /**
+   * Switching organizations reloads the member list; the flag drives the loading
+   * state so the sections below never look empty while that request is in flight.
+   */
+  const selectOrganization = useCallback(
+    async (workspaceId: string) => {
+      if (workspaceId === selectedWorkspaceId) return;
+      setIsSwitchingOrganization(true);
+      try {
+        await props.onWorkspaceSelectionChange(workspaceId);
+      } finally {
+        setIsSwitchingOrganization(false);
+      }
+    },
+    [props, selectedWorkspaceId],
   );
 
   const handleSort = useCallback(
@@ -301,85 +417,85 @@ export function MembersView(props: MembersViewProps) {
     [handleCopy, isBusy, isLoadingDashboard, isPlatformAdmin, onRefreshData, reactivate, toggleRole],
   );
 
-  const showSkeleton = isLoadingDashboard && members.length === 0;
-  const hasNoMembersAtAll = !isLoadingDashboard && !dashboardError && members.length === 0;
-  const hasNoMatches = !isLoadingDashboard && members.length > 0 && sorted.length === 0;
-  const workspaceLabel = selectedWorkspace?.name ?? null;
+  // Switching organizations is a member reload too, so it drives the same
+  // loading treatment the initial dashboard fetch gets.
+  const isLoadingMembers = isLoadingDashboard || isSwitchingOrganization;
+  const showSkeleton = isLoadingMembers && scopedMembers.length === 0;
+  const hasNoMembersAtAll = !isLoadingMembers && !dashboardError && scopedMembers.length === 0;
+  const hasNoMatches = !isLoadingMembers && scopedMembers.length > 0 && sorted.length === 0;
+  const organizationName = selectedOrganization?.name ?? null;
 
   return (
     <section className="space-y-5">
-      {/* ============================================ Workspace picker */}
-      {!isPlatformAdmin ? (
-        <SectionCard title="My Workspaces" description="Select a workspace to manage its members" icon="building" flush>
-          {props.myWorkspaces.length === 0 ? (
-            <EmptyState
-              icon="building"
-              title={isLoadingDashboard ? "Loading workspaces…" : "No workspaces assigned"}
-              description={
-                isLoadingDashboard
-                  ? undefined
-                  : "A platform admin must add you to a workspace before it appears here."
-              }
-            />
-          ) : (
-            <div className="grid gap-2.5 p-4 sm:grid-cols-2">
-              {props.myWorkspaces.map((workspace) => {
-                const isSelected = selectedWorkspaceId === workspace.id;
-                return (
-                  <button
-                    key={workspace.id}
-                    type="button"
-                    aria-pressed={isSelected}
-                    onClick={() => void props.onWorkspaceSelectionChange(workspace.id)}
-                    className={`rounded-xl border p-3.5 text-left transition-all ${
-                      isSelected
-                        ? "border-accent bg-(--accent-soft) shadow-[0_0_0_3px_rgba(15,118,110,0.10)]"
-                        : "border-border bg-card hover:border-border-strong hover:shadow-[var(--shadow-sm)]"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="truncate text-[0.8125rem] font-semibold">{workspace.name}</p>
-                      {isSelected ? (
-                        <span className="shrink-0 text-accent">
-                          <Icon name="check" size={14} />
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <RoleBadge value={workspace.role} />
-                      <StatusBadge value={workspace.status} />
-                    </div>
-                    <p className="mt-2 text-xs tabular-nums text-text-muted">
-                      {workspace.activeSeatCount}/{workspace.seatLimit ?? "∞"} seats used
-                    </p>
-                  </button>
-                );
-              })}
+      {/* ======================================= Organization selector */}
+      {/* Sticky from `lg` up only: on a phone this card is a third of the
+          viewport, and pinning it would leave no room for the members it
+          scopes. */}
+      <SectionCard
+        title="Manage Organization Members"
+        description="Choose an organization to manage its members, invitations, roles, and licenses."
+        icon="building"
+        className="lg:sticky lg:top-[var(--header-height)] lg:z-30"
+      >
+        {organizations.length === 0 ? (
+          <p className="text-[0.8125rem] text-text-muted">
+            {isLoadingDashboard
+              ? "Loading organizations…"
+              : isPlatformAdmin
+                ? "No organizations exist yet. Create one from the Workspaces page."
+                : "A platform admin must add you to an organization before it appears here."}
+          </p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
+            <div className="min-w-0">
+              <label className="ha-label" htmlFor="members-organization">
+                Organization
+              </label>
+              <OrganizationSelect
+                id="members-organization"
+                label="Select organization"
+                value={selectedWorkspaceId}
+                options={organizationOptions}
+                onChange={(organizationId) => void selectOrganization(organizationId)}
+                describedBy="members-organization-hint"
+              />
+              <p id="members-organization-hint" className="ha-hint">
+                Select an organization to manage its members and invitations.
+              </p>
             </div>
-          )}
-        </SectionCard>
-      ) : (
-        <SectionCard title="Member Scope" description="Members below belong to one workspace" icon="users">
-          <div className="flex flex-wrap items-center gap-2.5 text-[0.8125rem]">
-            <span className="text-text-muted">Selected workspace:</span>
-            {selectedWorkspace ? (
-              <span className="ha-badge ha-badge-info">{selectedWorkspace.name}</span>
-            ) : (
-              <span className="ha-badge ha-badge-neutral">None</span>
-            )}
-            {selectedWorkspace ? (
-              <span className="text-xs tabular-nums text-text-muted">
-                {selectedWorkspace.activeSeatCount}/{selectedWorkspace.seatLimit ?? "∞"} seats used
-              </span>
-            ) : null}
+
+            <div className="min-w-0 rounded-xl border border-border bg-card-2 px-4 py-3.5">
+              <p className="text-[0.8125rem] font-semibold tabular-nums" aria-live="polite">
+                {selectedOrganization
+                  ? describeLicenseUsage(summary.seatsUsed, selectedOrganization.seatLimit)
+                  : "No organization selected"}
+              </p>
+              {selectedOrganization ? (
+                <SeatUsageBar usage={licenseUsage} label={selectedOrganization.name} className="mt-2.5" />
+              ) : null}
+              <p className="ha-hint">
+                Active members and pending invitations count toward the organization&rsquo;s license limit.
+              </p>
+            </div>
           </div>
-        </SectionCard>
-      )}
+        )}
+
+        {organizationName ? (
+          <p className="mt-4 flex items-start gap-2 border-t border-border pt-3 text-xs leading-relaxed text-text-muted">
+            <span className="mt-0.5 shrink-0 text-accent">
+              <Icon name="arrowLeft" size={12} className="rotate-[-90deg]" />
+            </span>
+            Everything below — invitations, members, and licences — belongs to{" "}
+            <span className="font-semibold text-foreground">{organizationName}</span>. Changing the organization above
+            replaces all of it.
+          </p>
+        ) : null}
+      </SectionCard>
 
       {/* ========================================= Pending invitations */}
       <SectionCard
         title="Pending Invitations"
-        description="Seats reserved for people who have not signed up yet"
+        description="People who have been invited but have not joined yet."
         icon="mailClock"
         flush
         action={
@@ -407,9 +523,9 @@ export function MembersView(props: MembersViewProps) {
             icon="inbox"
             title="No pending invitations"
             description={
-              members.length === 0
+              scopedMembers.length === 0
                 ? "Once you invite someone, their pending invitation will appear here until they sign up."
-                : "Everyone invited to this workspace has already signed up."
+                : "Everyone invited to this organization has already signed up."
             }
           />
         ) : (
@@ -496,8 +612,8 @@ export function MembersView(props: MembersViewProps) {
 
       {/* ================================================ Invite form */}
       <SectionCard
-        title="Invite Member"
-        description="Invites activate automatically when the person signs up"
+        title="Invite a Member"
+        description="Send an invitation to give someone access to this organization."
         icon="userPlus"
       >
         <form className="grid gap-3.5 md:grid-cols-[2fr_1fr_auto] md:items-end" onSubmit={props.onAddMember}>
@@ -539,32 +655,32 @@ export function MembersView(props: MembersViewProps) {
           </button>
         </form>
         {!selectedWorkspaceId ? (
-          <p className="mt-3 text-xs text-text-subtle">Select a workspace above to enable invitations.</p>
+          <p className="mt-3 text-xs text-text-subtle">Select an organization above to enable invitations.</p>
         ) : null}
       </SectionCard>
 
       {/* =================================================== Directory */}
       <SectionCard
-        title="Workspace Members"
-        description={workspaceLabel ? `Seats in “${workspaceLabel}”` : "Seats in the selected workspace"}
+        title="Organization Members"
+        description="People who currently have access to this organization."
         icon="users"
         flush
         action={
           <span className="ha-badge ha-badge-neutral">
-            {sorted.length === members.length
-              ? `${members.length} ${members.length === 1 ? "member" : "members"}`
-              : `${sorted.length} of ${members.length}`}
+            {sorted.length === scopedMembers.length
+              ? `${scopedMembers.length} ${scopedMembers.length === 1 ? "member" : "members"}`
+              : `${sorted.length} of ${scopedMembers.length}`}
           </span>
         }
       >
         {/* Summary strip */}
-        {members.length > 0 ? (
+        {scopedMembers.length > 0 ? (
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-border px-5 py-3">
             <StatChip label="active" value={summary.active} tone="ha-badge-success" />
             <StatChip label="invited" value={summary.invited} tone="ha-badge-warning" />
             <StatChip label="revoked" value={summary.revoked} tone="ha-badge-danger" />
             <span className="text-xs text-text-subtle">
-              {summary.seatsUsed} {summary.seatsUsed === 1 ? "seat" : "seats"} consumed (active + invited)
+              {summary.seatsUsed} {summary.seatsUsed === 1 ? "license" : "licenses"} in use (active + invited)
             </span>
           </div>
         ) : null}
@@ -657,11 +773,11 @@ export function MembersView(props: MembersViewProps) {
         {hasNoMembersAtAll ? (
           <EmptyState
             icon="users"
-            title={selectedWorkspaceId ? "No members yet" : "No workspace selected"}
+            title={selectedWorkspaceId ? "No members yet" : "No organization selected"}
             description={
               selectedWorkspaceId
-                ? "Invite someone by email above — the seat activates automatically when they sign up."
-                : "Select a workspace to view and manage its members."
+                ? "Invite someone by email above — the licence activates automatically when they sign up."
+                : "Select an organization to view and manage its members."
             }
           />
         ) : null}
@@ -691,7 +807,8 @@ export function MembersView(props: MembersViewProps) {
             <div className="ha-scroll hidden max-h-[calc(100vh-26rem)] overflow-auto md:block">
               <table className="ha-table ha-table-zebra">
                 <caption className="sr-only">
-                  Workspace members. {sorted.length} of {members.length} shown, sorted by {sortKey} {sortDirection}ending.
+                  Members of {organizationName ?? "the selected organization"}. {sorted.length} of{" "}
+                  {scopedMembers.length} shown, sorted by {sortKey} {sortDirection}ending.
                 </caption>
                 <thead>
                   <tr>
