@@ -90,8 +90,10 @@ export default function Home() {
     isViewMode,
   );
 
-  const [loginEmail, setLoginEmail] = useState("admin@conference.org");
-  const [loginPassword, setLoginPassword] = useState("Password123!");
+  // Sign-in starts empty — the browser's own password manager is the only thing
+  // that should ever prefill these.
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [resetOtp, setResetOtp] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
@@ -355,6 +357,9 @@ export default function Home() {
     setUsers([]);
     setMembers([]);
     setSelectedWorkspaceId("");
+    // Signing out must not leave the previous person's credentials in the form.
+    setLoginEmail("");
+    setLoginPassword("");
     window.localStorage.removeItem(tokenStorageKey);
     window.localStorage.removeItem(userStorageKey);
   }
@@ -392,6 +397,8 @@ export default function Home() {
       }
 
       saveSession(data.accessToken, data.user);
+      // The credential has been exchanged for a token; nothing needs it again.
+      setLoginPassword("");
       // A fresh sign-in starts at this account's home section rather than
       // wherever the previous session — possibly a different person — left off.
       setStoredView(defaultViewFor(data.user.role === "admin"));
