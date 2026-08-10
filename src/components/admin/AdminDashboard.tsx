@@ -110,7 +110,7 @@ const platformNav: NavItem[] = [
   { key: "analytics", label: "Analytics", icon: "chart" },
   { key: "workspaces", label: "Workspaces", icon: "building" },
   { key: "members", label: "Members", icon: "users" },
-  { key: "users", label: "Users", icon: "shield" },
+  { key: "users", label: "Individual Users", icon: "shield" },
   { key: "audit", label: "Audit Logs", icon: "history" },
 ];
 
@@ -126,7 +126,12 @@ const viewCopy: Record<ViewMode, { title: string; description: string }> = {
   audit: { title: "Audit Logs", description: "Who did what, when, and to which resource" },
   workspaces: { title: "Workspaces", description: "Provision and manage organization workspaces" },
   members: { title: "Members", description: "Manage seats and roles within a workspace" },
-  users: { title: "Users", description: "Platform accounts and administrator management" },
+  // The sidebar entry stays "Users"; the page itself spells out which kind of
+  // user lives here, because "Users" and "Members" are easy to confuse.
+  users: {
+    title: "Individual Users",
+    description: "Manage people who have access through their individual HealthAge subscription.",
+  },
   "my-workspaces": { title: "My Workspaces", description: "Workspaces where you hold an owner or admin seat" },
 };
 
@@ -417,6 +422,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 isBusy={props.isBusy}
                 onRefreshData={props.onRefreshData}
                 onNotify={props.onNotify ?? noopNotify}
+                onGoToMembers={() => handleNavigate("members")}
                 onPromoteUserToAdmin={props.onPromoteUserToAdmin ?? null}
                 newAdminName={props.newAdminName}
                 setNewAdminName={props.setNewAdminName}

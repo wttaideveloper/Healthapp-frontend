@@ -1,13 +1,21 @@
 "use client";
 
-import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { UserDetailDrawer } from "@/components/admin/UserDetailDrawer";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/ActionMenu";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FilterSelect, type FilterOption } from "@/components/ui/FilterSelect";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { Pagination } from "@/components/ui/Pagination";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -40,6 +48,8 @@ type UsersViewProps = {
   isBusy: boolean;
   onRefreshData: () => void;
   onNotify: (type: "success" | "error", message: string) => void;
+  /** Switches the shell to the Members view. Omitted when navigation is unavailable. */
+  onGoToMembers?: () => void;
   /** Reuses `POST admin/users/promote-admin`. Null when unsupported for this session. */
   onPromoteUserToAdmin: ((email: string) => Promise<void>) | null;
   // Existing "Create Admin User" form — preserved verbatim.
@@ -76,6 +86,45 @@ const sortableColumns: Array<{ key: UserSortKey; label: string; className?: stri
   { key: "email", label: "Email" },
   { key: "role", label: "Role" },
 ];
+
+/**
+ * Plain-language copy for the Users/Members distinction. Kept in one place so
+ * the panel, the directory note, and the table's screen-reader caption cannot
+ * drift apart.
+ */
+const ACCESS_HINT = "Shows whether this individual user currently has access to HealthAge Pro.";
+
+/** Small explanatory card. Matches the `.ha-card` surface used across the console. */
+function GuidancePanel({
+  icon,
+  tone,
+  title,
+  children,
+}: {
+  icon: IconName;
+  tone: "accent" | "neutral";
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="ha-card flex items-start gap-3 px-4 py-3.5">
+      <span
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+        style={
+          tone === "accent"
+            ? { background: "var(--accent-soft)", color: "var(--accent)" }
+            : { background: "var(--muted)", color: "var(--text-muted)" }
+        }
+      >
+        <Icon name={icon} size={15} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[0.8125rem] font-semibold text-[color:var(--foreground)]">{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[color:var(--text-muted)]">{children}</p>
+      </div>
+    </div>
+  );
+}
 
 function SortButton({
   label,
@@ -228,8 +277,38 @@ export function UsersView(props: UsersViewProps) {
   const hasNoUsersAtAll = !isLoadingDashboard && !dashboardError && users.length === 0;
   const hasNoMatches = !isLoadingDashboard && users.length > 0 && sorted.length === 0;
 
+  /**
+   * "Members" reads as a destination wherever it is mentioned. It falls back to
+   * plain emphasis when the shell did not hand this view a way to navigate.
+   */
+  const goToMembers = props.onGoToMembers;
+  const membersLink = goToMembers ? (
+    <button
+      type="button"
+      onClick={goToMembers}
+      className="ha-tap-target cursor-pointer rounded font-semibold text-[color:var(--accent)] underline underline-offset-2 transition-colors hover:text-[color:var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+    >
+      Members
+    </button>
+  ) : (
+    <span className="font-semibold text-[color:var(--foreground)]">Members</span>
+  );
+
   return (
     <section className="space-y-5">
+      {/* ============================================ Who lives on this page */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <GuidancePanel icon="creditCard" tone="accent" title="Individual Subscribers">
+          These are people who signed up or subscribed directly through the HealthAge app. Their access is managed
+          independently and is not connected to an organization.
+        </GuidancePanel>
+
+        <GuidancePanel icon="building" tone="neutral" title="Looking for organization users?">
+          Organization members get their access from an organization&rsquo;s licence and are managed from the{" "}
+          {membersLink} section.
+        </GuidancePanel>
+      </div>
+
       {/* ================================================ Create admin */}
       <SectionCard
         title="Create Admin User"
@@ -290,7 +369,7 @@ export function UsersView(props: UsersViewProps) {
       {/* ================================================== Directory */}
       <SectionCard
         title="Users Directory"
-        description="Search, filter, and inspect every account on the platform"
+        description="View and manage individual HealthAge subscribers and platform administrators."
         icon="users"
         flush
         action={
@@ -301,6 +380,17 @@ export function UsersView(props: UsersViewProps) {
           </span>
         }
       >
+        {/* Scope note — repeats the distinction where the rows actually are. */}
+        <div className="flex items-start gap-2 border-b border-[color:var(--border)] bg-[color:var(--card-2)] px-5 py-2.5">
+          <span className="mt-0.5 shrink-0 text-[color:var(--text-subtle)]">
+            <Icon name="info" size={13} />
+          </span>
+          <p className="text-xs leading-relaxed text-[color:var(--text-muted)]">
+            These users have individual HealthAge access. Organization members are managed separately under{" "}
+            {membersLink}.
+          </p>
+        </div>
+
         {/* Toolbar */}
         <div className="border-b border-[color:var(--border)] px-5 py-3.5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -415,7 +505,8 @@ export function UsersView(props: UsersViewProps) {
             <div className="ha-scroll hidden max-h-[calc(100vh-22rem)] overflow-auto md:block">
               <table className="ha-table ha-table-zebra">
                 <caption className="sr-only">
-                  Platform users. {sorted.length} of {users.length} shown, sorted by {sortKey} {sortDirection}ending.
+                  Individual HealthAge users and platform administrators. {sorted.length} of {users.length} shown,
+                  sorted by {sortKey} {sortDirection}ending. {ACCESS_HINT}
                 </caption>
                 <thead>
                   <tr>
@@ -441,7 +532,12 @@ export function UsersView(props: UsersViewProps) {
                       </th>
                     ))}
                     <th scope="col">Status</th>
-                    <th scope="col">Access</th>
+                    <th scope="col">
+                      <span className="inline-flex items-center gap-1.5" title={ACCESS_HINT}>
+                        Access
+                        <Icon name="info" size={12} className="text-[color:var(--text-subtle)]" />
+                      </span>
+                    </th>
                     <th
                       scope="col"
                       aria-sort={
@@ -497,7 +593,10 @@ export function UsersView(props: UsersViewProps) {
                         <StatusBadge value={user.status} />
                       </td>
                       <td>
-                        <span className={`ha-badge ${user.hasAccess ? "ha-badge-success" : "ha-badge-neutral"}`}>
+                        <span
+                          title={ACCESS_HINT}
+                          className={`ha-badge ${user.hasAccess ? "ha-badge-success" : "ha-badge-neutral"}`}
+                        >
                           {user.hasAccess ? "Has access" : "No access"}
                         </span>
                       </td>
@@ -534,7 +633,10 @@ export function UsersView(props: UsersViewProps) {
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <RoleBadge value={user.role} />
                         <StatusBadge value={user.status} />
-                        <span className={`ha-badge ${user.hasAccess ? "ha-badge-success" : "ha-badge-neutral"}`}>
+                        <span
+                          title={ACCESS_HINT}
+                          className={`ha-badge ${user.hasAccess ? "ha-badge-success" : "ha-badge-neutral"}`}
+                        >
                           {user.hasAccess ? "Has access" : "No access"}
                         </span>
                       </div>
