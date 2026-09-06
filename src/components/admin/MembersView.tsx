@@ -33,6 +33,7 @@ import {
   filterMembers,
   getInvitationAgeDays,
   getMemberCapabilities,
+  getMemberPermanentDeleteCapabilities,
   getPendingInvitations,
   occupiesSeat,
   resolveMemberIdentity,
@@ -70,6 +71,7 @@ type MembersViewProps = {
   onAddMember: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onUpdateMember: (memberId: string, role: string, status: string) => Promise<void>;
   onRevokeMember: (memberId: string) => Promise<void>;
+  onPermanentlyDeleteMember?: ((memberId: string, confirmation: string) => Promise<void>) | null;
 };
 
 const statusFilterOptions: ReadonlyArray<FilterOption<MemberStatusFilter>> = [
@@ -176,6 +178,7 @@ export function MembersView(props: MembersViewProps) {
   const [pageSize, setPageSize] = useLocalStorageState<PageSize>("healthage.admin.members.pageSize", 25, isPageSize);
   const [drawerMemberId, setDrawerMemberId] = useState<string | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<WorkspaceMember | null>(null);
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<WorkspaceMember | null>(null);
   const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
 
   const deferredSearch = useDeferredValue(filters.search);
@@ -344,6 +347,16 @@ export function MembersView(props: MembersViewProps) {
     await props.onRevokeMember(target.id);
   }, [pendingRevoke, props]);
 
+  const confirmPermanentDelete = useCallback(async () => {
+    if (!pendingPermanentDelete) return;
+    const target = pendingPermanentDelete;
+    const deleteMember = props.onPermanentlyDeleteMember;
+    if (!deleteMember) return;
+    setPendingPermanentDelete(null);
+    await deleteMember(target.id, target.email);
+    setDrawerMemberId((current) => (current === target.id ? null : current));
+  }, [pendingPermanentDelete, props]);
+
   const buildRowActions = useCallback(
     (member: WorkspaceMember): ActionMenuItem[] => {
       const capabilities = getMemberCapabilities(member, isPlatformAdmin);
@@ -412,9 +425,29 @@ export function MembersView(props: MembersViewProps) {
         onSelect: () => setPendingRevoke(member),
       });
 
+      if (isPlatformAdmin) {
+        const permanentDelete = getMemberPermanentDeleteCapabilities(
+          member,
+          isPlatformAdmin,
+          selectedWorkspace,
+          scopedMembers,
+        );
+        actions.push({
+          key: "permanent-delete",
+          label: "Permanently Delete",
+          icon: "trash",
+          destructive: true,
+          disabled: !permanentDelete.canPermanentlyDelete || isBusy || !props.onPermanentlyDeleteMember,
+          hint: permanentDelete.canPermanentlyDelete
+            ? "Irreversible. Removes this seat row only — not the user account."
+            : (permanentDelete.blockedReason ?? undefined),
+          onSelect: () => setPendingPermanentDelete(member),
+        });
+      }
+
       return actions;
     },
-    [handleCopy, isBusy, isLoadingDashboard, isPlatformAdmin, onRefreshData, reactivate, toggleRole],
+    [handleCopy, isBusy, isLoadingDashboard, isPlatformAdmin, onRefreshData, props.onPermanentlyDeleteMember, reactivate, scopedMembers, selectedWorkspace, toggleRole],
   );
 
   // Switching organizations is a member reload too, so it drives the same
@@ -1018,6 +1051,12 @@ export function MembersView(props: MembersViewProps) {
         onCopy={(value, label) => void handleCopy(value, label)}
         onToggleRole={toggleRole}
         onRevoke={(member) => setPendingRevoke(member)}
+        onPermanentlyDelete={
+          isPlatformAdmin && props.onPermanentlyDeleteMember
+            ? (member) => setPendingPermanentDelete(member)
+            : null
+        }
+        workspaceMembers={scopedMembers}
         onReactivate={reactivate}
       />
 
@@ -1036,6 +1075,21 @@ export function MembersView(props: MembersViewProps) {
         isBusy={isBusy}
         onConfirm={() => void confirmRevoke()}
         onCancel={() => setPendingRevoke(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingPermanentDelete !== null}
+        title="Permanently delete this member?"
+        description={`This removes the seat for ${pendingPermanentDelete?.email ?? "this member"} from the workspace. The user account, billing, and other members are not deleted. This cannot be undone.`}
+        warning="Permanent Delete is for dummy or test data only. Prefer Revoke for real members. Type the member email to enable the button."
+        confirmLabel="PERMANENTLY DELETE"
+        icon="trash"
+        tone="danger"
+        isBusy={isBusy}
+        confirmText={pendingPermanentDelete?.email ?? ""}
+        confirmPrompt="Type the member email to confirm"
+        onConfirm={() => void confirmPermanentDelete()}
+        onCancel={() => setPendingPermanentDelete(null)}
       />
     </section>
   );

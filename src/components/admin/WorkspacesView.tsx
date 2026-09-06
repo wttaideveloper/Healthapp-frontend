@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, u
 import { WorkspaceDetailDrawer } from "@/components/admin/WorkspaceDetailDrawer";
 import { WorkspaceUpdateDialog } from "@/components/admin/WorkspaceUpdateDialog";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/ActionMenu";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AvatarGroup } from "@/components/ui/AvatarGroup";
 import { DateField } from "@/components/ui/DateField";
 import { FilterSelect, type FilterOption } from "@/components/ui/FilterSelect";
@@ -33,6 +34,7 @@ import {
   defaultWorkspaceFilters,
   filterWorkspaces,
   getSeatUsage,
+  getWorkspacePermanentDeleteCapabilities,
   resolveOwner,
   sortWorkspaces,
   validateWorkspaceCreateDraft,
@@ -92,6 +94,8 @@ type WorkspacesViewProps = {
   setUpdateExpiresAt: (value: string) => void;
   /** Resolves true when the save landed, so the update dialog knows to close. */
   onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  onRevokeWorkspace?: ((workspaceId: string) => Promise<void>) | null;
+  onPermanentlyDeleteWorkspace?: ((workspaceId: string, confirmation: string) => Promise<void>) | null;
   // Invite — reuses the existing member handler.
   memberEmail: string;
   setMemberEmail: (value: string) => void;
@@ -200,6 +204,8 @@ export function WorkspacesView(props: WorkspacesViewProps) {
   );
   const [drawerWorkspaceId, setDrawerWorkspaceId] = useState<string | null>(null);
   const [updateDialogWorkspaceId, setUpdateDialogWorkspaceId] = useState<string | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<Workspace | null>(null);
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<Workspace | null>(null);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [createErrors, setCreateErrors] = useState<WorkspaceFormErrors>({});
   /** The workspace just created — marked "New" and revealed in the directory. */
@@ -385,55 +391,122 @@ export function WorkspacesView(props: WorkspacesViewProps) {
     setNewWorkspaceId(createdId);
   }
 
+  const confirmRevoke = useCallback(async () => {
+    if (!pendingRevoke) return;
+    const target = pendingRevoke;
+    const revoke = props.onRevokeWorkspace;
+    if (!revoke) return;
+    setPendingRevoke(null);
+    await revoke(target.id);
+  }, [pendingRevoke, props]);
+
+  const confirmPermanentDelete = useCallback(async () => {
+    if (!pendingPermanentDelete) return;
+    const target = pendingPermanentDelete;
+    const deleteWorkspace = props.onPermanentlyDeleteWorkspace;
+    if (!deleteWorkspace) return;
+    setPendingPermanentDelete(null);
+    await deleteWorkspace(target.id, target.name);
+    setDrawerWorkspaceId((current) => (current === target.id ? null : current));
+    setUpdateDialogWorkspaceId((current) => (current === target.id ? null : current));
+  }, [pendingPermanentDelete, props]);
+
   const buildRowActions = useCallback(
-    (workspace: Workspace): ActionMenuItem[] => [
-      {
-        key: "view",
-        label: "View details",
-        icon: "chevronRight",
-        onSelect: () => void openWorkspace(workspace.id),
-      },
-      {
-        key: "update",
-        label: "Update workspace",
-        icon: "settings",
-        onSelect: () => void openUpdateDialog(workspace.id),
-        hint: "Licenses, subscription, expiry, access",
-      },
-      {
-        key: "copy-id",
-        label: "Copy workspace ID",
-        icon: "copy",
-        onSelect: () => void handleCopy(workspace.id, "Workspace ID"),
-      },
-      {
-        key: "copy-owner",
-        label: "Copy owner email",
-        icon: "mail",
-        onSelect: () => void handleCopy(workspace.ownerEmail, "Owner email"),
-      },
-      {
-        key: "copy-name",
-        label: "Copy workspace name",
-        icon: "copy",
-        onSelect: () => void handleCopy(workspace.name, "Workspace name"),
-      },
-      {
-        key: "invite",
-        label: "Invite member",
-        icon: "userPlus",
-        onSelect: () => void openWorkspace(workspace.id),
-        hint: "Opens the workspace panel",
-      },
-      {
-        key: "refresh",
-        label: "Refresh workspace",
-        icon: "refresh",
-        disabled: isLoadingDashboard,
-        onSelect: onRefreshData,
-      },
+    (workspace: Workspace): ActionMenuItem[] => {
+      const permanentDelete = getWorkspacePermanentDeleteCapabilities(workspace);
+      const alreadyRevoked = workspace.status === "revoked";
+
+      const actions: ActionMenuItem[] = [
+        {
+          key: "view",
+          label: "View details",
+          icon: "chevronRight",
+          onSelect: () => void openWorkspace(workspace.id),
+        },
+        {
+          key: "update",
+          label: "Update",
+          icon: "settings",
+          onSelect: () => void openUpdateDialog(workspace.id),
+          hint: "Licenses, subscription, expiry, access",
+        },
+      ];
+
+      if (props.onRevokeWorkspace) {
+        actions.push({
+          key: "revoke",
+          label: "Revoke Workspace",
+          icon: "ban",
+          destructive: true,
+          disabled: alreadyRevoked || isBusy,
+          hint: alreadyRevoked
+            ? "Already revoked. This does not delete the workspace."
+            : "Soft revoke. The workspace row is kept.",
+          onSelect: () => setPendingRevoke(workspace),
+        });
+      }
+
+      if (props.onPermanentlyDeleteWorkspace) {
+        actions.push({
+          key: "permanent-delete",
+          label: "Permanently Delete",
+          icon: "trash",
+          destructive: true,
+          disabled: !permanentDelete.canPermanentlyDelete || isBusy,
+          hint: permanentDelete.canPermanentlyDelete
+            ? "Irreversible. Removes this workspace and its member seats — not user accounts."
+            : (permanentDelete.blockedReason ?? undefined),
+          onSelect: () => setPendingPermanentDelete(workspace),
+        });
+      }
+
+      actions.push(
+        {
+          key: "copy-id",
+          label: "Copy workspace ID",
+          icon: "copy",
+          onSelect: () => void handleCopy(workspace.id, "Workspace ID"),
+        },
+        {
+          key: "copy-owner",
+          label: "Copy owner email",
+          icon: "mail",
+          onSelect: () => void handleCopy(workspace.ownerEmail, "Owner email"),
+        },
+        {
+          key: "copy-name",
+          label: "Copy workspace name",
+          icon: "copy",
+          onSelect: () => void handleCopy(workspace.name, "Workspace name"),
+        },
+        {
+          key: "invite",
+          label: "Invite member",
+          icon: "userPlus",
+          onSelect: () => void openWorkspace(workspace.id),
+          hint: "Opens the workspace panel",
+        },
+        {
+          key: "refresh",
+          label: "Refresh workspace",
+          icon: "refresh",
+          disabled: isLoadingDashboard,
+          onSelect: onRefreshData,
+        },
+      );
+
+      return actions;
+    },
+    [
+      handleCopy,
+      isBusy,
+      isLoadingDashboard,
+      onRefreshData,
+      openUpdateDialog,
+      openWorkspace,
+      props.onPermanentlyDeleteWorkspace,
+      props.onRevokeWorkspace,
     ],
-    [handleCopy, isLoadingDashboard, onRefreshData, openUpdateDialog, openWorkspace],
   );
 
   const showSkeleton = isLoadingDashboard && workspaces.length === 0;
@@ -1069,6 +1142,10 @@ export function WorkspacesView(props: WorkspacesViewProps) {
         memberRole={props.memberRole}
         setMemberRole={props.setMemberRole}
         onAddMember={props.onAddMember}
+        onRevoke={props.onRevokeWorkspace ? (workspace) => setPendingRevoke(workspace) : null}
+        onPermanentlyDelete={
+          props.onPermanentlyDeleteWorkspace ? (workspace) => setPendingPermanentDelete(workspace) : null
+        }
       />
 
       {/* ============================================= Update dialog */}
@@ -1090,6 +1167,35 @@ export function WorkspacesView(props: WorkspacesViewProps) {
         updateExpiresAt={props.updateExpiresAt}
         setUpdateExpiresAt={props.setUpdateExpiresAt}
         onUpdateWorkspace={props.onUpdateWorkspace}
+      />
+
+      <ConfirmDialog
+        open={pendingRevoke !== null}
+        title="Revoke this workspace?"
+        description={`${pendingRevoke?.name ?? "This workspace"} will be soft-revoked. Members lose workspace access. The workspace row, users, and billing history are kept.`}
+        warning="This is not a permanent delete. You can still find the workspace as revoked."
+        confirmLabel="Revoke Workspace"
+        icon="ban"
+        tone="danger"
+        isBusy={isBusy}
+        onConfirm={() => void confirmRevoke()}
+        onCancel={() => setPendingRevoke(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingPermanentDelete !== null}
+        title="Permanently Delete Workspace?"
+        description={`This permanently removes ${pendingPermanentDelete?.name ?? "this workspace"} and its member seats. User accounts, billing events, audit logs, and Shopify data are not deleted.`}
+        warning="This action is permanent and cannot be undone. Prefer Revoke Workspace for real organizations. Type the exact workspace name to confirm."
+        confirmLabel="PERMANENTLY DELETE"
+        icon="trash"
+        tone="danger"
+        isBusy={isBusy}
+        confirmText={pendingPermanentDelete?.name ?? ""}
+        confirmPrompt="Type the workspace name to confirm"
+        confirmMatch="exact"
+        onConfirm={() => void confirmPermanentDelete()}
+        onCancel={() => setPendingPermanentDelete(null)}
       />
     </section>
   );

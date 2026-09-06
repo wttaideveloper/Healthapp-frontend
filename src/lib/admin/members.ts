@@ -104,6 +104,46 @@ export type MemberCapabilities = {
   blockedReason: string | null;
 };
 
+export type MemberPermanentDeleteCapabilities = {
+  canPermanentlyDelete: boolean;
+  blockedReason: string | null;
+};
+
+function ownerIdentityKey(userId: string | null | undefined, email: string | null | undefined): string | null {
+  if (userId) return `id:${userId}`;
+  if (email && email.trim()) return `email:${email.trim().toLowerCase()}`;
+  return null;
+}
+
+/**
+ * Mirrors the backend last-owner-equivalent guard. UI-only; the API re-checks.
+ */
+export function isLastOwnerEquivalentSeat(input: {
+  member: { id: string; role: string; userId: string | null; email: string };
+  workspace: { ownerUserId: string | null; ownerEmail: string };
+  ownerSeats: Array<{ userId: string | null; email: string }>;
+}): boolean {
+  const memberKeys = new Set<string>();
+  const byId = ownerIdentityKey(input.member.userId, null);
+  const byEmail = ownerIdentityKey(null, input.member.email);
+  if (byId) memberKeys.add(byId);
+  if (byEmail) memberKeys.add(byEmail);
+
+  const ownerKeys = new Set<string>();
+  const listed = ownerIdentityKey(input.workspace.ownerUserId, input.workspace.ownerEmail);
+  if (listed) ownerKeys.add(listed);
+  for (const seat of input.ownerSeats) {
+    const key = ownerIdentityKey(seat.userId, seat.email);
+    if (key) ownerKeys.add(key);
+  }
+
+  const memberIsOwner = [...ownerKeys].some((key) => memberKeys.has(key)) || input.member.role === "owner";
+  if (!memberIsOwner) return false;
+
+  const remaining = [...ownerKeys].filter((key) => !memberKeys.has(key));
+  return remaining.length === 0;
+}
+
 /**
  * What the API will actually accept for this member.
  *
@@ -142,6 +182,45 @@ export function getMemberCapabilities(member: WorkspaceMember, isPlatformAdmin: 
 }
 
 /**
+ * Permanent delete is a separate danger action from revoke. Only platform
+ * admins get the endpoint; owners and last owner-equivalent seats are blocked.
+ */
+export function getMemberPermanentDeleteCapabilities(
+  member: WorkspaceMember,
+  isPlatformAdmin: boolean,
+  workspace: Pick<Workspace, "ownerUserId" | "ownerEmail"> | null,
+  workspaceMembers: WorkspaceMember[],
+): MemberPermanentDeleteCapabilities {
+  if (!isPlatformAdmin) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "Only a platform admin can permanently delete members",
+    };
+  }
+
+  if (member.role === "owner") {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "This member is an owner. Transfer ownership before deleting.",
+    };
+  }
+
+  if (workspace) {
+    const ownerSeats = workspaceMembers.filter(
+      (seat) => seat.workspaceId === member.workspaceId && seat.role === "owner" && seat.status !== "revoked",
+    );
+    if (isLastOwnerEquivalentSeat({ member, workspace, ownerSeats })) {
+      return {
+        canPermanentlyDelete: false,
+        blockedReason: "This member is the last remaining owner-equivalent seat.",
+      };
+    }
+  }
+
+  return { canPermanentlyDelete: true, blockedReason: null };
+}
+
+/**
  * Actions the API has no endpoint for. Surfaced as disabled controls with an
  * explanation rather than silently omitted, so admins know the limit is the
  * backend and not a permission problem.
@@ -149,7 +228,6 @@ export function getMemberCapabilities(member: WorkspaceMember, isPlatformAdmin: 
 export const unsupportedMemberActions = {
   resendInvitation:
     "No resend endpoint. Re-inviting an existing member returns 409 Conflict; only a revoked seat can be re-added.",
-  removeMember: "DELETE performs a soft revoke — the row is retained and no hard-delete endpoint exists.",
   transferOwnership: "No ownership-transfer endpoint. Owner reassignment also requires updating the workspace record.",
   invitationLink: "Invitations are email-only; the API returns no per-invite token or link.",
 } as const;

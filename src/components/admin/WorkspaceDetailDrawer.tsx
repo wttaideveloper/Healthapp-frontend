@@ -12,6 +12,7 @@ import { getInitials } from "@/lib/admin/users";
 import {
   describeEntitlementBlock,
   getSeatUsage,
+  getWorkspacePermanentDeleteCapabilities,
   isWorkspaceEntitled,
   orderMembersForDisplay,
   resolveOwner,
@@ -35,6 +36,8 @@ type WorkspaceDetailDrawerProps = {
   memberRole: string;
   setMemberRole: (value: string) => void;
   onAddMember: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onRevoke: ((workspace: Workspace) => void) | null;
+  onPermanentlyDelete: ((workspace: Workspace) => void) | null;
 };
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -97,6 +100,8 @@ export function WorkspaceDetailDrawer(props: WorkspaceDetailDrawerProps) {
 
   const entitled = isWorkspaceEntitled(workspace);
   const blockReason = describeEntitlementBlock(workspace);
+  const permanentDelete = getWorkspacePermanentDeleteCapabilities(workspace);
+  const alreadyRevoked = workspace.status === "revoked";
 
   return (
     <Drawer
@@ -122,6 +127,30 @@ export function WorkspaceDetailDrawer(props: WorkspaceDetailDrawerProps) {
             <Icon name="mail" size={13} />
             Copy owner email
           </button>
+          {props.onRevoke ? (
+            <button
+              type="button"
+              disabled={props.isBusy || alreadyRevoked}
+              title={alreadyRevoked ? "Already revoked" : "Soft revoke this workspace"}
+              onClick={() => props.onRevoke?.(workspace)}
+              className="ha-btn ha-btn-danger ha-btn-sm"
+            >
+              <Icon name="ban" size={13} />
+              Revoke Workspace
+            </button>
+          ) : null}
+          {props.onPermanentlyDelete ? (
+            <button
+              type="button"
+              disabled={props.isBusy || !permanentDelete.canPermanentlyDelete}
+              title={permanentDelete.blockedReason ?? "Permanently delete this workspace"}
+              onClick={() => props.onPermanentlyDelete?.(workspace)}
+              className="ha-btn ha-btn-danger ha-btn-sm"
+            >
+              <Icon name="trash" size={13} />
+              Permanently Delete
+            </button>
+          ) : null}
           <button type="button" onClick={props.onClose} className="ha-btn ha-btn-ghost ha-btn-sm ml-auto">
             Close
           </button>
@@ -337,8 +366,20 @@ export function WorkspaceDetailDrawer(props: WorkspaceDetailDrawerProps) {
           <DetailRow label="Workspace ID">
             <CopyableText value={workspace.id} label="Workspace ID" onCopy={onCopy} mono />
           </DetailRow>
+          {workspace.billingSource ? (
+            <DetailRow label="Billing source">{workspace.billingSource}</DetailRow>
+          ) : null}
         </dl>
       </section>
+
+      {permanentDelete.blockedReason && props.onPermanentlyDelete ? (
+        <p className="mt-4 flex items-start gap-2 rounded-lg border border-[rgba(180,83,9,0.22)] bg-(--warning-soft) px-3 py-2.5 text-xs leading-relaxed text-warning">
+          <span className="mt-0.5 shrink-0">
+            <Icon name="lock" size={13} />
+          </span>
+          {permanentDelete.blockedReason}
+        </p>
+      ) : null}
 
       {workspace.notes ? (
         <section className="mt-5">

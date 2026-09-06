@@ -10,9 +10,12 @@ type PasswordInputProps = {
   className?: string;
   placeholder?: string;
   required?: boolean;
+  minLength?: number;
   /** Enables `<label htmlFor>` association. */
   id?: string;
   autoComplete?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
 };
 
 /**
@@ -36,7 +39,10 @@ export function PasswordInput(props: PasswordInputProps) {
         placeholder={props.placeholder}
         type={isVisible ? "text" : "password"}
         required={props.required}
+        minLength={props.minLength}
         autoComplete={props.autoComplete}
+        aria-invalid={props["aria-invalid"]}
+        aria-describedby={props["aria-describedby"]}
       />
       <button
         type="button"

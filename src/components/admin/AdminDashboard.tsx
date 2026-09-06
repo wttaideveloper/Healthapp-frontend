@@ -78,6 +78,8 @@ type AdminDashboardProps = {
   setUpdateExpiresAt: (value: string) => void;
   /** Resolves true when the save landed, so the update dialog knows to close. */
   onUpdateWorkspace: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  onRevokeWorkspace?: ((workspaceId: string) => Promise<void>) | null;
+  onPermanentlyDeleteWorkspace?: ((workspaceId: string, confirmation: string) => Promise<void>) | null;
   memberEmail: string;
   setMemberEmail: (value: string) => void;
   memberRole: string;
@@ -85,6 +87,7 @@ type AdminDashboardProps = {
   onAddMember: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   onUpdateMember: (memberId: string, role: string, status: string) => Promise<void>;
   onRevokeMember: (memberId: string) => Promise<void>;
+  onPermanentlyDeleteMember?: ((memberId: string, confirmation: string) => Promise<void>) | null;
   newAdminName: string;
   setNewAdminName: (value: string) => void;
   newAdminEmail: string;
@@ -100,6 +103,10 @@ type AdminDashboardProps = {
   onNotify?: (type: "success" | "error", message: string) => void;
   /** Optional: reuses `POST admin/users/promote-admin`. Null disables the action. */
   onPromoteUserToAdmin?: ((email: string) => Promise<void>) | null;
+  /** Optional: reuses `PATCH admin/users/:id` `{ status: "disabled" }`. Null disables the action. */
+  onDeactivateUser?: ((userId: string) => Promise<void>) | null;
+  /** Optional: `POST admin/users/:id/permanent-delete`. Null disables the action. */
+  onPermanentlyDeleteUser?: ((userId: string, confirmation: string) => Promise<void>) | null;
 };
 
 /** Stable no-op so an omitted `onNotify` does not change identity each render. */
@@ -378,6 +385,8 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 updateExpiresAt={props.updateExpiresAt}
                 setUpdateExpiresAt={props.setUpdateExpiresAt}
                 onUpdateWorkspace={props.onUpdateWorkspace}
+                onRevokeWorkspace={props.onRevokeWorkspace ?? null}
+                onPermanentlyDeleteWorkspace={props.onPermanentlyDeleteWorkspace ?? null}
                 memberEmail={props.memberEmail}
                 setMemberEmail={props.setMemberEmail}
                 memberRole={props.memberRole}
@@ -409,6 +418,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 onAddMember={props.onAddMember}
                 onUpdateMember={props.onUpdateMember}
                 onRevokeMember={props.onRevokeMember}
+                onPermanentlyDeleteMember={props.isPlatformAdmin ? (props.onPermanentlyDeleteMember ?? null) : null}
               />
             ) : null}
 
@@ -417,6 +427,7 @@ export function AdminDashboard(props: AdminDashboardProps) {
               <UsersView
                 users={props.users}
                 workspaces={props.workspaces}
+                members={props.members}
                 isLoadingDashboard={props.isLoadingDashboard}
                 dashboardError={props.dashboardError ?? null}
                 isBusy={props.isBusy}
@@ -424,6 +435,9 @@ export function AdminDashboard(props: AdminDashboardProps) {
                 onNotify={props.onNotify ?? noopNotify}
                 onGoToMembers={() => handleNavigate("members")}
                 onPromoteUserToAdmin={props.onPromoteUserToAdmin ?? null}
+                onDeactivateUser={props.onDeactivateUser ?? null}
+                onPermanentlyDeleteUser={props.onPermanentlyDeleteUser ?? null}
+                currentUserId={props.currentUser.id}
                 newAdminName={props.newAdminName}
                 setNewAdminName={props.setNewAdminName}
                 newAdminEmail={props.newAdminEmail}

@@ -8,7 +8,7 @@
 
 const successValues = new Set(["active", "fulfilled", "granted", "yes"]);
 const warningValues = new Set(["trialing", "invited", "pending", "past_due", "paused", "suspended"]);
-const dangerValues = new Set(["revoked", "expired", "canceled", "cancelled", "refunded", "no", "none"]);
+const dangerValues = new Set(["revoked", "expired", "canceled", "cancelled", "refunded", "no", "none", "disabled"]);
 
 function toneFor(value: string): string {
   const normalized = value.trim().toLowerCase();

@@ -12,6 +12,7 @@ import {
   buildMemberTimeline,
   getInvitationAgeDays,
   getMemberCapabilities,
+  getMemberPermanentDeleteCapabilities,
   occupiesSeat,
   resolveMemberIdentity,
   unsupportedMemberActions,
@@ -30,6 +31,8 @@ type MemberDetailDrawerProps = {
   onCopy: (value: string, label: string) => void;
   onToggleRole: (member: WorkspaceMember) => void;
   onRevoke: (member: WorkspaceMember) => void;
+  onPermanentlyDelete: ((member: WorkspaceMember) => void) | null;
+  workspaceMembers: WorkspaceMember[];
   onReactivate: (member: WorkspaceMember) => void;
 };
 
@@ -93,6 +96,12 @@ export function MemberDetailDrawer(props: MemberDetailDrawerProps) {
   if (!member || !identity) return null;
 
   const capabilities = getMemberCapabilities(member, props.isPlatformAdmin);
+  const permanentDelete = getMemberPermanentDeleteCapabilities(
+    member,
+    props.isPlatformAdmin,
+    workspace,
+    props.workspaceMembers,
+  );
   const inviteAge = getInvitationAgeDays(member);
   const hasSeat = occupiesSeat(member);
 
@@ -156,6 +165,19 @@ export function MemberDetailDrawer(props: MemberDetailDrawerProps) {
             >
               <Icon name="ban" size={13} />
               Revoke
+            </button>
+          ) : null}
+
+          {props.onPermanentlyDelete ? (
+            <button
+              type="button"
+              disabled={props.isBusy || !permanentDelete.canPermanentlyDelete}
+              title={permanentDelete.blockedReason ?? "Permanently delete this seat"}
+              onClick={() => props.onPermanentlyDelete?.(member)}
+              className="ha-btn ha-btn-danger ha-btn-sm"
+            >
+              <Icon name="trash" size={13} />
+              Permanently Delete
             </button>
           ) : null}
 
@@ -300,7 +322,6 @@ export function MemberDetailDrawer(props: MemberDetailDrawerProps) {
           {[
             { label: "Resend invitation", reason: unsupportedMemberActions.resendInvitation },
             { label: "Copy invitation link", reason: unsupportedMemberActions.invitationLink },
-            { label: "Delete member permanently", reason: unsupportedMemberActions.removeMember },
             { label: "Transfer ownership", reason: unsupportedMemberActions.transferOwnership },
           ].map((entry) => (
             <li
@@ -318,6 +339,15 @@ export function MemberDetailDrawer(props: MemberDetailDrawerProps) {
           ))}
         </ul>
       </section>
+
+      {permanentDelete.blockedReason && props.onPermanentlyDelete ? (
+        <p className="mt-3 flex items-start gap-2 rounded-lg border border-[rgba(180,83,9,0.22)] bg-(--warning-soft) px-3 py-2.5 text-xs leading-relaxed text-warning">
+          <span className="mt-0.5 shrink-0">
+            <Icon name="lock" size={13} />
+          </span>
+          {permanentDelete.blockedReason}
+        </p>
+      ) : null}
 
       {capabilities.blockedReason ? (
         <p className="mt-4 flex items-start gap-2 rounded-lg border border-[rgba(180,83,9,0.22)] bg-(--warning-soft) px-3 py-2.5 text-xs leading-relaxed text-warning">

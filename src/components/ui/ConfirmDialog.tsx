@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { confirmationMatches } from "@/lib/admin/confirmation";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -15,6 +16,18 @@ type ConfirmDialogProps = {
   icon?: IconName;
   tone?: "primary" | "danger";
   isBusy?: boolean;
+  /**
+   * When set, the confirm button stays disabled until the typed value matches
+   * this string (trim + case-insensitive). Backend still re-validates.
+   */
+  confirmText?: string;
+  /** Shown above the type-to-confirm field, e.g. "Type the member email". */
+  confirmPrompt?: string;
+  /**
+   * `email` (default) trims and ignores case.
+   * `exact` trims only — used for workspace names.
+   */
+  confirmMatch?: "email" | "exact";
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -29,24 +42,35 @@ export function ConfirmDialog({
   icon = "alert",
   tone = "primary",
   isBusy = false,
+  confirmText,
+  confirmPrompt,
+  confirmMatch = "email",
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   // Read from a ref so a parent re-render — a toast expiring, say — cannot
   // re-run the effect below, whose cleanup hands focus back to the caller.
   const onCancelRef = useRef(onCancel);
+  const [typedConfirmation, setTypedConfirmation] = useState("");
 
   useEffect(() => {
     onCancelRef.current = onCancel;
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setTypedConfirmation("");
+      return;
+    }
 
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const timer = window.setTimeout(() => confirmRef.current?.focus(), 30);
+    const timer = window.setTimeout(() => {
+      if (confirmText) inputRef.current?.focus();
+      else confirmRef.current?.focus();
+    }, 30);
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -62,7 +86,7 @@ export function ConfirmDialog({
       document.removeEventListener("keydown", onKeyDown, true);
       restoreFocusRef.current?.focus?.();
     };
-  }, [open]);
+  }, [open, confirmText]);
 
   if (!open) return null;
 
@@ -106,6 +130,29 @@ export function ConfirmDialog({
                 {warning}
               </p>
             ) : null}
+            {confirmText ? (
+              <label className="mt-3 block">
+                <span className="text-xs font-medium text-[color:var(--foreground)]">
+                  {confirmPrompt ?? `Type ${confirmText} to confirm`}
+                </span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={typedConfirmation}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={isBusy}
+                  onChange={(event) => setTypedConfirmation(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    if (!isBusy && confirmationMatches(typedConfirmation, confirmText, confirmMatch)) onConfirm();
+                  }}
+                  placeholder={confirmText}
+                  className="ha-input mt-1.5 w-full font-mono text-[0.8125rem]"
+                />
+              </label>
+            ) : null}
           </div>
         </div>
 
@@ -117,7 +164,7 @@ export function ConfirmDialog({
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
-            disabled={isBusy}
+            disabled={isBusy || (Boolean(confirmText) && !confirmationMatches(typedConfirmation, confirmText ?? "", confirmMatch))}
             className={`ha-btn ${tone === "danger" ? "ha-btn-danger" : "ha-btn-primary"}`}
           >
             {isBusy ? "Working…" : confirmLabel}

@@ -7,7 +7,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ToastMessage } from "@/components/ui/ToastMessage";
 import { callApi } from "@/lib/admin/api";
 
-type ToastState = { type: "success" | "error"; message: string } | null;
+type ToastState = { id: number; type: "success" | "error"; message: string } | null;
 
 export default function ForgotPasswordPage() {
   const [forgotEmail, setForgotEmail] = useState("");
@@ -28,13 +28,21 @@ export default function ForgotPasswordPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail }),
       });
-      setToast({ type: "success", message: response.message || "If an account exists, an OTP has been sent." });
+      setToast({
+        id: Date.now(),
+        type: "success",
+        message: response.message || "If an account exists, an OTP has been sent.",
+      });
       setIsOtpSent(true);
       if (!resetEmail) {
         setResetEmail(forgotEmail);
       }
     } catch (error) {
-      setToast({ type: "error", message: error instanceof Error ? error.message : "Failed to send OTP" });
+      setToast({
+        id: Date.now(),
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to send OTP",
+      });
     } finally {
       setIsBusy(false);
     }
@@ -57,12 +65,20 @@ export default function ForgotPasswordPage() {
           newPassword: resetNewPassword,
         }),
       });
-      setToast({ type: "success", message: response.message || "Password updated successfully." });
+      setToast({
+        id: Date.now(),
+        type: "success",
+        message: response.message || "Password updated successfully.",
+      });
       setResetOtp("");
       setResetNewPassword("");
       setIsOtpSent(false);
     } catch (error) {
-      setToast({ type: "error", message: error instanceof Error ? error.message : "Failed to reset password" });
+      setToast({
+        id: Date.now(),
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to reset password",
+      });
     } finally {
       setIsBusy(false);
     }
@@ -70,7 +86,14 @@ export default function ForgotPasswordPage() {
 
   return (
     <>
-      {toast ? <ToastMessage type={toast.type} message={toast.message} /> : null}
+      {toast ? (
+        <ToastMessage
+          key={toast.id}
+          type={toast.type}
+          message={toast.message}
+          onDismiss={() => setToast(null)}
+        />
+      ) : null}
 
       <AuthShell
         title="Reset your password"

@@ -1,17 +1,44 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+
 import { Icon } from "@/components/ui/Icon";
 import { ToastType } from "@/types/admin";
+
+/** Matches the Admin Console timer in `page.tsx` (`showToast`). */
+export const TOAST_DISMISS_MS = 3200;
 
 export function ToastMessage({
   type,
   message,
   description,
+  duration = TOAST_DISMISS_MS,
+  onDismiss,
 }: {
   type: ToastType;
   message: string;
   /** Optional second line, rendered muted under the headline. */
   description?: string;
+  /** Auto-dismiss delay. Ignored when `onDismiss` is omitted. */
+  duration?: number;
+  /**
+   * When set, the toast hides itself after `duration` ms.
+   * Existing screens that already time the toast themselves can omit this.
+   */
+  onDismiss?: () => void;
 }) {
   const isSuccess = type === "success";
+  const canDismiss = typeof onDismiss === "function";
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  useEffect(() => {
+    if (!canDismiss) return;
+    const timer = window.setTimeout(() => {
+      onDismissRef.current?.();
+    }, duration);
+    return () => window.clearTimeout(timer);
+  }, [canDismiss, type, message, description, duration]);
 
   return (
     <div

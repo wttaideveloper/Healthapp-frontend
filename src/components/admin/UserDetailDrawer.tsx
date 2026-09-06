@@ -7,7 +7,7 @@ import { Drawer } from "@/components/ui/Drawer";
 import { Icon } from "@/components/ui/Icon";
 import { RoleBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTime } from "@/lib/format";
-import { findOwnedWorkspaces } from "@/lib/admin/users";
+import { findOwnedWorkspaces, type UserDeactivateCapabilities, type UserPermanentDeleteCapabilities } from "@/lib/admin/users";
 import type { AdminUser, Workspace } from "@/types/admin";
 
 type UserDetailDrawerProps = {
@@ -16,9 +16,13 @@ type UserDetailDrawerProps = {
   /** True when the signed-in account can call admin-only mutations. */
   canManage: boolean;
   isBusy: boolean;
+  deactivate: UserDeactivateCapabilities | null;
+  permanentDelete: UserPermanentDeleteCapabilities | null;
   onClose: () => void;
   onCopy: (value: string, label: string) => void;
   onPromote: ((user: AdminUser) => void) | null;
+  onDeactivate: ((user: AdminUser) => void) | null;
+  onPermanentlyDelete: ((user: AdminUser) => void) | null;
 };
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -45,9 +49,13 @@ export function UserDetailDrawer({
   workspaces,
   canManage,
   isBusy,
+  deactivate,
   onClose,
   onCopy,
   onPromote,
+  onDeactivate,
+  onPermanentlyDelete,
+  permanentDelete,
 }: UserDetailDrawerProps) {
   const ownedWorkspaces = useMemo(
     () => (user ? findOwnedWorkspaces(user, workspaces) : []),
@@ -56,7 +64,9 @@ export function UserDetailDrawer({
 
   if (!user) return null;
 
-  const canPromote = canManage && onPromote !== null && user.role !== "admin";
+  const canPromote = canManage && onPromote !== null && user.role !== "admin" && user.status !== "disabled";
+  const canDeactivate = onDeactivate !== null && (deactivate?.canDeactivate ?? false);
+  const canPermanentlyDelete = onPermanentlyDelete !== null && (permanentDelete?.canPermanentlyDelete ?? false);
 
   return (
     <Drawer
@@ -83,6 +93,30 @@ export function UserDetailDrawer({
             >
               <Icon name="shield" size={13} />
               Promote to admin
+            </button>
+          ) : null}
+          {onDeactivate ? (
+            <button
+              type="button"
+              disabled={!canDeactivate || isBusy}
+              title={deactivate?.blockedReason ?? "Deactivate this user"}
+              onClick={() => onDeactivate(user)}
+              className="ha-btn ha-btn-danger ha-btn-sm"
+            >
+              <Icon name="ban" size={13} />
+              Deactivate user
+            </button>
+          ) : null}
+          {onPermanentlyDelete ? (
+            <button
+              type="button"
+              disabled={!canPermanentlyDelete || isBusy}
+              title={permanentDelete?.blockedReason ?? "Permanently delete this user"}
+              onClick={() => onPermanentlyDelete(user)}
+              className="ha-btn ha-btn-danger ha-btn-sm"
+            >
+              <Icon name="trash" size={13} />
+              Permanently Delete
             </button>
           ) : null}
           <button type="button" onClick={onClose} className="ha-btn ha-btn-ghost ha-btn-sm ml-auto">
@@ -193,7 +227,17 @@ export function UserDetailDrawer({
         </dl>
       </section>
 
-      {user.role === "admin" ? (
+      {user.status === "disabled" ? (
+        <p className="mt-5 flex items-start gap-2 rounded-lg border border-[color:rgba(185,28,28,0.22)] bg-[color:var(--danger-soft)] px-3 py-2.5 text-xs leading-relaxed text-[color:var(--danger)]">
+          <span className="mt-0.5 shrink-0">
+            <Icon name="ban" size={13} />
+          </span>
+          This account is deactivated. The user cannot log in. Workspace memberships were revoked. Billing records and
+          device reports were not deleted.
+        </p>
+      ) : null}
+
+      {user.role === "admin" && user.status !== "disabled" ? (
         <p className="mt-5 flex items-start gap-2 rounded-lg border border-[color:rgba(180,83,9,0.22)] bg-[color:var(--warning-soft)] px-3 py-2.5 text-xs leading-relaxed text-[color:var(--warning)]">
           <span className="mt-0.5 shrink-0">
             <Icon name="shield" size={13} />

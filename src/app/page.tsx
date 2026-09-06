@@ -585,6 +585,52 @@ export default function Home() {
     }
   }
 
+  async function onRevokeWorkspace(workspaceId: string): Promise<void> {
+    if (!token || !platformAdmin) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        `admin/workspaces/${workspaceId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "revoked" }),
+        },
+        token,
+      );
+      showToast("success", "Workspace revoked.");
+      hydratedWorkspaceIdRef.current = null;
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to revoke workspace");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function onPermanentlyDeleteWorkspace(workspaceId: string, confirmation: string): Promise<void> {
+    if (!token || !platformAdmin) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        `admin/workspaces/${workspaceId}/permanent-delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation }),
+        },
+        token,
+      );
+      showToast("success", "Workspace permanently deleted.");
+      hydratedWorkspaceIdRef.current = null;
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to permanently delete workspace");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function onWorkspaceSelectionChange(workspaceId: string): Promise<void> {
     setSelectedWorkspaceId(workspaceId);
     if (!token) return;
@@ -655,6 +701,83 @@ export default function Home() {
       await loadDashboard(token, currentUser);
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to revoke member");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function onPermanentlyDeleteMember(memberId: string, confirmation: string): Promise<void> {
+    if (!token || !selectedWorkspaceId || !platformAdmin) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        `admin/workspaces/${selectedWorkspaceId}/members/${memberId}/permanent-delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation }),
+        },
+        token,
+      );
+      showToast("success", "Member permanently deleted.");
+      await loadMembers(token, selectedWorkspaceId, platformAdmin);
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to permanently delete member");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  /**
+   * Soft-deactivates an individual user from the Users table.
+   *
+   * Uses `PATCH admin/users/:id` with `{ status: "disabled" }`. The user row
+   * is kept; memberships are revoked; billing and workspaces are not deleted.
+   */
+  async function onDeactivateUser(userId: string): Promise<void> {
+    if (!token) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        `admin/users/${userId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "disabled" }),
+        },
+        token,
+      );
+      showToast("success", "User deactivated. They can no longer log in, and their workspace seats were returned.");
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to deactivate user");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  /**
+   * Permanently deletes a deactivated dummy/test user with no remaining
+   * workspace or billing relationships. Soft deactivate remains PATCH disabled.
+   */
+  async function onPermanentlyDeleteUser(userId: string, confirmation: string): Promise<void> {
+    if (!token || !platformAdmin) return;
+    setIsBusy(true);
+    try {
+      await callApi(
+        `admin/users/${userId}/permanent-delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation }),
+        },
+        token,
+      );
+      showToast("success", "User permanently deleted.");
+      await loadDashboard(token, currentUser);
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to permanently delete user");
     } finally {
       setIsBusy(false);
     }
@@ -791,6 +914,8 @@ export default function Home() {
       updateExpiresAt={updateExpiresAt}
       setUpdateExpiresAt={setUpdateExpiresAt}
       onUpdateWorkspace={onUpdateWorkspace}
+      onRevokeWorkspace={platformAdmin ? onRevokeWorkspace : null}
+      onPermanentlyDeleteWorkspace={platformAdmin ? onPermanentlyDeleteWorkspace : null}
       memberEmail={memberEmail}
       setMemberEmail={setMemberEmail}
       memberRole={memberRole}
@@ -798,6 +923,7 @@ export default function Home() {
       onAddMember={onAddMember}
       onUpdateMember={onUpdateMember}
       onRevokeMember={onRevokeMember}
+      onPermanentlyDeleteMember={platformAdmin ? onPermanentlyDeleteMember : null}
       newAdminName={newAdminName}
       setNewAdminName={setNewAdminName}
       newAdminEmail={newAdminEmail}
@@ -807,6 +933,8 @@ export default function Home() {
       onCreateAdmin={onCreateAdmin}
       onNotify={showToast}
       onPromoteUserToAdmin={platformAdmin ? onPromoteUserToAdmin : null}
+      onDeactivateUser={platformAdmin ? onDeactivateUser : null}
+      onPermanentlyDeleteUser={platformAdmin ? onPermanentlyDeleteUser : null}
     />
   );
 }

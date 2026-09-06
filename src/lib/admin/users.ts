@@ -1,4 +1,4 @@
-import type { AdminUser, Workspace } from "@/types/admin";
+import type { AdminUser, Workspace, WorkspaceMember } from "@/types/admin";
 
 /**
  * Pure helpers for the Users view.
@@ -9,11 +9,11 @@ import type { AdminUser, Workspace } from "@/types/admin";
  *
  * Backend vocabulary (see `src/db/schema/enums.ts` in the API):
  *   role   = "user" | "admin"          -> the spec's "Member" is `user`
- *   status = "pending" | "active"      -> there is NO "disabled" status
+ *   status = "pending" | "active" | "disabled"
  */
 
 export type RoleFilter = "all" | "admin" | "user";
-export type StatusFilter = "all" | "active" | "pending";
+export type StatusFilter = "all" | "active" | "pending" | "disabled";
 export type AccessFilter = "all" | "has-access" | "no-access";
 
 export type UserSortKey = "name" | "email" | "createdAt" | "role";
@@ -155,4 +155,187 @@ export function getInitials(name: string): string {
       .map((part) => part.charAt(0).toUpperCase())
       .join("") || "?"
   );
+}
+
+function ownerIdentityKey(userId: string | null | undefined, email: string | null | undefined): string | null {
+  if (userId) return `id:${userId}`;
+  if (email && email.trim()) return `email:${email.trim().toLowerCase()}`;
+  return null;
+}
+
+/**
+ * Same sole-owner rule as the backend (`isSoleOwnerOfActiveWorkspace`):
+ * the user is an owner (listed on the workspace or an unrevoked owner member)
+ * and no other owner identity remains.
+ */
+export function isSoleOwnerOfActiveWorkspace(input: {
+  userId: string;
+  email: string;
+  workspace: { ownerUserId: string | null; ownerEmail: string };
+  ownerMembers: Array<{ userId: string | null; email: string }>;
+}): boolean {
+  const email = input.email.trim().toLowerCase();
+  const targetKeys = new Set([`id:${input.userId}`, `email:${email}`]);
+
+  const ownerKeys = new Set<string>();
+  const listed = ownerIdentityKey(input.workspace.ownerUserId, input.workspace.ownerEmail);
+  if (listed) ownerKeys.add(listed);
+  for (const member of input.ownerMembers) {
+    const key = ownerIdentityKey(member.userId, member.email);
+    if (key) ownerKeys.add(key);
+  }
+
+  const userIsOwner = [...ownerKeys].some((key) => targetKeys.has(key));
+  if (!userIsOwner) return false;
+
+  const remaining = [...ownerKeys].filter((key) => !targetKeys.has(key));
+  return remaining.length === 0;
+}
+
+export type UserDeactivateCapabilities = {
+  canDeactivate: boolean;
+  blockedReason: string | null;
+};
+
+/**
+ * Mirrors the backend deactivation guards so the action is disabled before
+ * the request, with the same 409 cases: self, last active admin, sole owner
+ * of an active workspace. The API remains the authority.
+ *
+ * `members` should be the loaded workspace-member rows (typically the selected
+ * workspace). Owner members for other workspaces are unknown, so those
+ * workspaces fall back to the listed owner on the workspace record.
+ */
+export function getUserDeactivateCapabilities(
+  user: AdminUser,
+  context: {
+    currentUserId: string;
+    users: AdminUser[];
+    workspaces: Workspace[];
+    members?: WorkspaceMember[];
+  },
+): UserDeactivateCapabilities {
+  if (user.status === "disabled") {
+    return { canDeactivate: false, blockedReason: "This account is already deactivated" };
+  }
+
+  if (user.id === context.currentUserId) {
+    return { canDeactivate: false, blockedReason: "You cannot deactivate your own account" };
+  }
+
+  const activeAdmins = context.users.filter((row) => row.role === "admin" && row.status === "active");
+  if (user.role === "admin" && activeAdmins.length <= 1) {
+    return { canDeactivate: false, blockedReason: "Cannot deactivate the last remaining active platform admin" };
+  }
+
+  const members = context.members ?? [];
+  const soleOwned = context.workspaces.filter((workspace) => {
+    if (workspace.status !== "active") return false;
+    return isSoleOwnerOfActiveWorkspace({
+      userId: user.id,
+      email: user.email,
+      workspace: { ownerUserId: workspace.ownerUserId, ownerEmail: workspace.ownerEmail },
+      ownerMembers: members
+        .filter((member) => member.workspaceId === workspace.id && member.role === "owner" && member.status !== "revoked")
+        .map((member) => ({ userId: member.userId, email: member.email })),
+    });
+  });
+
+  if (soleOwned.length > 0) {
+    const names = soleOwned.map((workspace) => workspace.name).join(", ");
+    return {
+      canDeactivate: false,
+      blockedReason: `Sole owner of an active workspace (${names}). Transfer ownership or revoke the workspace first`,
+    };
+  }
+
+  return { canDeactivate: true, blockedReason: null };
+}
+
+export type UserPermanentDeleteCapabilities = {
+  canPermanentlyDelete: boolean;
+  blockedReason: string | null;
+};
+
+/**
+ * UI hint only. Mirrors the backend permanent-delete guards that this page can
+ * see: self, platform admin, not yet deactivated, owned workspaces, loaded
+ * memberships, Shopify-owned workspaces, and visible billing access.
+ *
+ * Billing and memberships on other workspaces may be incomplete here. The API
+ * remains the authority.
+ */
+export function getUserPermanentDeleteCapabilities(
+  user: AdminUser,
+  context: {
+    currentUserId: string;
+    workspaces: Workspace[];
+    members?: WorkspaceMember[];
+  },
+): UserPermanentDeleteCapabilities {
+  if (user.id === context.currentUserId) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "You cannot permanently delete your own account.",
+    };
+  }
+
+  if (user.role === "admin") {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "Platform administrator accounts cannot be permanently deleted.",
+    };
+  }
+
+  if (user.status !== "disabled") {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "Deactivate the user before permanently deleting the account.",
+    };
+  }
+
+  const owned = findOwnedWorkspaces(user, context.workspaces);
+  const shopifyOwned = owned.filter(
+    (workspace) => (workspace.billingSource ?? "").trim().toLowerCase() === "shopify",
+  );
+  if (shopifyOwned.length > 0) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "Permanent deletion is blocked because this account has a Shopify business relationship.",
+    };
+  }
+  if (owned.length > 0) {
+    const names = owned.map((workspace) => workspace.name).join(", ");
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: `This user still owns a workspace (${names}).`,
+    };
+  }
+
+  const email = user.email.trim().toLowerCase();
+  const memberships = (context.members ?? []).filter(
+    (member) => member.userId === user.id || member.email.trim().toLowerCase() === email,
+  );
+  if (memberships.some((member) => member.role === "owner")) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "This user still owns a workspace.",
+    };
+  }
+  if (memberships.length > 0) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason:
+        "This user still belongs to one or more workspaces. Remove the memberships before permanently deleting the user.",
+    };
+  }
+
+  if (user.hasAccess) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "This user still has an active billing entitlement.",
+    };
+  }
+
+  return { canPermanentlyDelete: true, blockedReason: null };
 }

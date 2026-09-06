@@ -1,5 +1,5 @@
 export type UserRole = "user" | "admin";
-export type UserStatus = "pending" | "active";
+export type UserStatus = "pending" | "active" | "disabled";
 
 export type EntitlementSource = "workspace" | "individual_iap" | "individual_stripe" | null;
 
@@ -70,6 +70,7 @@ export type Workspace = {
   notes: string | null;
   createdByUserId: string | null;
   revokedAt: string | null;
+  billingSource?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -28,6 +28,8 @@ import {
   countActiveFilters,
   defaultUserFilters,
   filterUsers,
+  getUserDeactivateCapabilities,
+  getUserPermanentDeleteCapabilities,
   isPageSize,
   paginate,
   sortUsers,
@@ -38,11 +40,13 @@ import {
   type StatusFilter,
   type UserSortKey,
 } from "@/lib/admin/users";
-import type { AdminUser, Workspace } from "@/types/admin";
+import type { AdminUser, Workspace, WorkspaceMember } from "@/types/admin";
 
 type UsersViewProps = {
   users: AdminUser[];
   workspaces: Workspace[];
+  members: WorkspaceMember[];
+  currentUserId: string;
   isLoadingDashboard: boolean;
   dashboardError: string | null;
   isBusy: boolean;
@@ -52,6 +56,10 @@ type UsersViewProps = {
   onGoToMembers?: () => void;
   /** Reuses `POST admin/users/promote-admin`. Null when unsupported for this session. */
   onPromoteUserToAdmin: ((email: string) => Promise<void>) | null;
+  /** Reuses `PATCH admin/users/:id` with `{ status: "disabled" }`. Null when unsupported. */
+  onDeactivateUser: ((userId: string) => Promise<void>) | null;
+  /** Reuses `POST admin/users/:id/permanent-delete`. Null when unsupported. */
+  onPermanentlyDeleteUser: ((userId: string, confirmation: string) => Promise<void>) | null;
   // Existing "Create Admin User" form — preserved verbatim.
   newAdminName: string;
   setNewAdminName: (value: string) => void;
@@ -73,6 +81,7 @@ const statusOptions: ReadonlyArray<FilterOption<StatusFilter>> = [
   { value: "all", label: "All statuses" },
   { value: "active", label: "Active" },
   { value: "pending", label: "Pending" },
+  { value: "disabled", label: "Disabled" },
 ];
 
 const accessOptions: ReadonlyArray<FilterOption<AccessFilter>> = [
@@ -167,6 +176,8 @@ export function UsersView(props: UsersViewProps) {
   const [pageSize, setPageSize] = useLocalStorageState<PageSize>("healthage.admin.users.pageSize", 25, isPageSize);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<AdminUser | null>(null);
+  const [pendingDeactivation, setPendingDeactivation] = useState<AdminUser | null>(null);
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState<AdminUser | null>(null);
 
   // Keeps typing responsive: the input updates immediately while the (heavier)
   // filter + sort pass runs against a deferred value.
@@ -197,6 +208,12 @@ export function UsersView(props: UsersViewProps) {
     [users, selectedUserId],
   );
 
+  useEffect(() => {
+    if (selectedUserId && !users.some((user) => user.id === selectedUserId)) {
+      setSelectedUserId(null);
+    }
+  }, [selectedUserId, users]);
+
   const handleSort = useCallback(
     (key: UserSortKey) => {
       if (key === sortKey) {
@@ -226,8 +243,31 @@ export function UsersView(props: UsersViewProps) {
     await promoteUserToAdmin(target.email);
   }, [pendingPromotion, promoteUserToAdmin]);
 
+  const deactivateUser = props.onDeactivateUser;
+  const confirmDeactivation = useCallback(async () => {
+    if (!pendingDeactivation || !deactivateUser) return;
+    const target = pendingDeactivation;
+    setPendingDeactivation(null);
+    await deactivateUser(target.id);
+  }, [pendingDeactivation, deactivateUser]);
+
+  const permanentlyDeleteUser = props.onPermanentlyDeleteUser;
+  const confirmPermanentDelete = useCallback(async () => {
+    if (!pendingPermanentDelete || !permanentlyDeleteUser) return;
+    const target = pendingPermanentDelete;
+    setPendingPermanentDelete(null);
+    await permanentlyDeleteUser(target.id, target.email);
+  }, [pendingPermanentDelete, permanentlyDeleteUser]);
+
   const buildRowActions = useCallback(
     (user: AdminUser): ActionMenuItem[] => {
+      const deactivate = getUserDeactivateCapabilities(user, {
+        currentUserId: props.currentUserId,
+        users,
+        workspaces: props.workspaces,
+        members: props.members,
+      });
+
       const actions: ActionMenuItem[] = [
         {
           key: "view",
@@ -254,8 +294,8 @@ export function UsersView(props: UsersViewProps) {
           key: "promote",
           label: "Promote to admin",
           icon: "shield",
-          disabled: user.role === "admin" || isBusy,
-          hint: user.role === "admin" ? "Already an admin" : "Cannot be undone here",
+          disabled: user.role === "admin" || user.status === "disabled" || isBusy,
+          hint: user.role === "admin" ? "Already an admin" : user.status === "disabled" ? "Deactivated accounts cannot be promoted here" : "Cannot be undone here",
           onSelect: () => setPendingPromotion(user),
         });
       }
@@ -268,9 +308,52 @@ export function UsersView(props: UsersViewProps) {
         onSelect: onRefreshData,
       });
 
+      if (deactivateUser) {
+        actions.push({
+          key: "deactivate",
+          label: "Deactivate user",
+          icon: "ban",
+          destructive: true,
+          disabled: !deactivate.canDeactivate || isBusy,
+          hint: deactivate.blockedReason ?? undefined,
+          onSelect: () => setPendingDeactivation(user),
+        });
+      }
+
+      if (permanentlyDeleteUser) {
+        const permanentDelete = getUserPermanentDeleteCapabilities(user, {
+          currentUserId: props.currentUserId,
+          workspaces: props.workspaces,
+          members: props.members,
+        });
+        actions.push({
+          key: "permanent-delete",
+          label: "Permanently Delete",
+          icon: "trash",
+          destructive: true,
+          disabled: !permanentDelete.canPermanentlyDelete || isBusy,
+          hint: permanentDelete.canPermanentlyDelete
+            ? "Irreversible. Removes the user account only after every safety guard passes."
+            : (permanentDelete.blockedReason ?? undefined),
+          onSelect: () => setPendingPermanentDelete(user),
+        });
+      }
+
       return actions;
     },
-    [handleCopy, isBusy, isLoadingDashboard, promoteUserToAdmin, onRefreshData],
+    [
+      handleCopy,
+      isBusy,
+      isLoadingDashboard,
+      promoteUserToAdmin,
+      deactivateUser,
+      permanentlyDeleteUser,
+      onRefreshData,
+      props.currentUserId,
+      props.workspaces,
+      props.members,
+      users,
+    ],
   );
 
   const showSkeleton = isLoadingDashboard && users.length === 0;
@@ -690,9 +773,30 @@ export function UsersView(props: UsersViewProps) {
         workspaces={props.workspaces}
         canManage={props.onPromoteUserToAdmin !== null}
         isBusy={isBusy}
+        deactivate={
+          selectedUser
+            ? getUserDeactivateCapabilities(selectedUser, {
+                currentUserId: props.currentUserId,
+                users,
+                workspaces: props.workspaces,
+                members: props.members,
+              })
+            : null
+        }
+        permanentDelete={
+          selectedUser
+            ? getUserPermanentDeleteCapabilities(selectedUser, {
+                currentUserId: props.currentUserId,
+                workspaces: props.workspaces,
+                members: props.members,
+              })
+            : null
+        }
         onClose={() => setSelectedUserId(null)}
         onCopy={(value, label) => void handleCopy(value, label)}
         onPromote={props.onPromoteUserToAdmin ? (user) => setPendingPromotion(user) : null}
+        onDeactivate={props.onDeactivateUser ? (user) => setPendingDeactivation(user) : null}
+        onPermanentlyDelete={props.onPermanentlyDeleteUser ? (user) => setPendingPermanentDelete(user) : null}
       />
 
       <ConfirmDialog
@@ -705,6 +809,34 @@ export function UsersView(props: UsersViewProps) {
         isBusy={isBusy}
         onConfirm={() => void confirmPromotion()}
         onCancel={() => setPendingPromotion(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingDeactivation !== null}
+        title="Deactivate this user?"
+        description={`${pendingDeactivation?.name ?? ""} (${pendingDeactivation?.email ?? ""}) will be deactivated. They will no longer be able to log in, and their workspace memberships will be revoked.`}
+        warning="Their workspaces will not be deleted. Stripe and IAP subscriptions will not be cancelled automatically. Health reports stored on their device will not be deleted."
+        confirmLabel="Deactivate user"
+        icon="ban"
+        tone="danger"
+        isBusy={isBusy}
+        onConfirm={() => void confirmDeactivation()}
+        onCancel={() => setPendingDeactivation(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingPermanentDelete !== null}
+        title="Permanently Delete User?"
+        description={`User: ${pendingPermanentDelete?.email ?? ""}`}
+        warning="This permanently deletes the user account. This action cannot be undone. The user must have no workspace memberships, ownership, or active billing relationships. Permanent Delete is for dummy or test accounts only — prefer Deactivate for real users."
+        confirmLabel="PERMANENTLY DELETE"
+        icon="trash"
+        tone="danger"
+        isBusy={isBusy}
+        confirmText={pendingPermanentDelete?.email ?? ""}
+        confirmPrompt={`Type ${pendingPermanentDelete?.email ?? "the user email"} to confirm`}
+        onConfirm={() => void confirmPermanentDelete()}
+        onCancel={() => setPendingPermanentDelete(null)}
       />
     </section>
   );

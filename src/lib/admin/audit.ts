@@ -34,6 +34,7 @@ const actionLabels: Record<string, string> = {
   "workspace.created": "Workspace created",
   "workspace.updated": "Workspace updated",
   "workspace.revoked": "Workspace revoked",
+  "workspace.permanently_deleted": "Workspace permanently deleted",
   "workspace.subscription_changed": "Subscription status changed",
   "workspace.provisioned_shopify": "Workspace provisioned (Shopify)",
   "workspace.cancelled_shopify": "Workspace cancelled (Shopify)",
@@ -42,7 +43,10 @@ const actionLabels: Record<string, string> = {
   "member.role_changed": "Role changed",
   "member.restored": "Member restored",
   "member.removed": "Member removed",
+  "member.permanently_deleted": "Member permanently deleted",
   "invitation.revoked": "Invitation revoked",
+  "user.deactivated": "User deactivated",
+  "user.permanently_deleted": "User permanently deleted",
 };
 
 export function auditActionLabel(action: string): string {
@@ -62,6 +66,7 @@ export function auditActionCategory(action: string): AuditCategory {
   if (prefix === "admin") return "admin";
   if (prefix === "workspace") return "workspace";
   if (prefix === "member" || prefix === "invitation") return "member";
+  if (prefix === "user") return "admin";
   return "other";
 }
 

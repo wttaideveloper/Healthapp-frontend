@@ -13,10 +13,9 @@ import type { AdminUser, Workspace, WorkspaceMember } from "@/types/admin";
  *   subscriptionStatus  = "active" | "trialing" | "past_due" | "expired" | "canceled"
  *                         (American spelling — NOT "cancelled")
  *
- * BACKEND LIMITATION: `workspaces.billing_source` ("manual" | "shopify") exists
- * in Postgres but is absent from `workspaceResponseSchema`, so Fastify's
- * serializer strips it. Billing source therefore cannot be shown or filtered
- * until that field is added to the response schema.
+ * BACKEND: `workspaces.billing_source` ("manual" | "shopify") is returned as
+ * `billingSource` on admin workspace payloads. Permanent delete is blocked for
+ * Shopify-managed workspaces.
  */
 
 export type WorkspaceStatusFilter = "all" | "active" | "suspended" | "revoked";
@@ -51,6 +50,30 @@ export function countActiveWorkspaceFilters(filters: WorkspaceFilterState): numb
   if (filters.seats !== "all") count += 1;
   if (filters.entitlement !== "all") count += 1;
   return count;
+}
+
+export type WorkspacePermanentDeleteCapabilities = {
+  canPermanentlyDelete: boolean;
+  blockedReason: string | null;
+};
+
+export function isShopifyManagedWorkspace(workspace: Pick<Workspace, "billingSource">): boolean {
+  return (workspace.billingSource ?? "").trim().toLowerCase() === "shopify";
+}
+
+/**
+ * UI hint only. The API re-checks Shopify links that this list payload may not include.
+ */
+export function getWorkspacePermanentDeleteCapabilities(
+  workspace: Workspace,
+): WorkspacePermanentDeleteCapabilities {
+  if (isShopifyManagedWorkspace(workspace)) {
+    return {
+      canPermanentlyDelete: false,
+      blockedReason: "Shopify-managed workspaces cannot be permanently deleted. Revoke the workspace instead.",
+    };
+  }
+  return { canPermanentlyDelete: true, blockedReason: null };
 }
 
 /* ------------------------------------------------------------------ owner */
