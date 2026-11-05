@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 
 import { AuthLink, AuthShell } from "@/components/auth/AuthShell";
 import { PasswordInput } from "@/components/ui/PasswordInput";
@@ -15,6 +16,10 @@ const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9 ]*$/;
 /** Same format rule as workspace owner-email: local-part @ domain . tld */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIELD_ORDER: FieldName[] = ["name", "email", "password"];
+/** Where a registered admin signs in (the Admin Console login lives at the root). */
+const SIGN_IN_PATH = "/";
+/** How long the confirmation stays up before redirecting to sign-in. */
+const REDIRECT_DELAY_MS = 5000;
 const FIELD_IDS: Record<FieldName, string> = {
     name: "signup-name",
     email: "signup-email",
@@ -71,12 +76,22 @@ function focusFirstInvalidField(errors: FieldErrors): void {
  * the console.
  */
 export function WorkspaceAuthScreen() {
+    const router = useRouter();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [isBusy, setIsBusy] = useState(false);
+    const [isRegistered, setIsRegistered] = useState(false);
     const [toast, setToast] = useState<ToastState>(null);
     const [errors, setErrors] = useState<FieldErrors>({});
+
+    // After a successful registration, send the user on to the sign-in page.
+    useEffect(() => {
+        if (!isRegistered) return;
+        router.prefetch(SIGN_IN_PATH);
+        const timer = window.setTimeout(() => router.push(SIGN_IN_PATH), REDIRECT_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [isRegistered, router]);
 
     function clearErrorWhenValid(field: FieldName, message: string | undefined): void {
         setErrors((current) => {
@@ -109,14 +124,11 @@ export function WorkspaceAuthScreen() {
                 body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
             });
 
-            setToast({
-                id: Date.now(),
-                type: "success",
-                message: "Registered successfully. Your account requires admin approval before you can sign in.",
-            });
             setName("");
             setEmail("");
             setPassword("");
+            setToast(null);
+            setIsRegistered(true);
         } catch (e) {
             setToast({
                 id: Date.now(),
@@ -126,6 +138,26 @@ export function WorkspaceAuthScreen() {
         } finally {
             setIsBusy(false);
         }
+    }
+
+    if (isRegistered) {
+        return (
+            <AuthShell
+                title="Registration submitted"
+                subtitle="Your account requires admin approval before you can sign in."
+                footer={<p>Redirecting you to sign in…</p>}
+            >
+                <div className="grid gap-4" role="status" aria-live="polite">
+                    <p className="text-[0.8125rem] leading-relaxed text-[color:var(--text-muted)]">
+                        Registered successfully. A platform admin will review your account. Once it is approved you
+                        can sign in with the email and password you just used.
+                    </p>
+                    <a href={SIGN_IN_PATH} className="ha-btn ha-btn-primary ha-btn-lg w-full">
+                        Go to sign in
+                    </a>
+                </div>
+            </AuthShell>
+        );
     }
 
     return (
