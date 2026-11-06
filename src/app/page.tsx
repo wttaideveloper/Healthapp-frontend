@@ -48,6 +48,27 @@ function isWorkspaceManager(entitlement: EntitlementResponse | null): boolean {
 }
 
 /**
+ * Why sign-in was refused, for someone who is neither a platform admin nor an active
+ * workspace owner/admin. Nobody approves accounts by hand: workspace access comes from
+ * a membership that is linked to the account's email address (a legacy purchase, or an
+ * invitation), so the message points at that, not at an approval step that does not exist.
+ * The lookup itself failing is a different problem and is not reported as "not authorized".
+ */
+function notAuthorizedMessage(entitlement: EntitlementResponse | null): string {
+  if (!entitlement) {
+    return "We couldn't check your workspace access. Please try again in a moment.";
+  }
+  const workspace = entitlement.workspace;
+  if (!workspace) {
+    return "Account not authorized. No active workspace is linked to this email address. Sign in with the email used for your purchase or workspace invitation. If your access should be active, contact HealthAge support.";
+  }
+  if (workspace.role === "member") {
+    return "Account not authorized. The Admin Portal is for workspace owners and admins. As a member, sign in to the HealthAge app instead.";
+  }
+  return "Account not authorized. Your workspace membership is not active. Please contact HealthAge support.";
+}
+
+/**
  * Rewrites the API's engineer-facing rejections into something an office
  * administrator can act on. Anything unrecognised is passed through unchanged
  * rather than swallowed — a message we did not anticipate is still better than
@@ -391,7 +412,7 @@ export default function Home() {
       );
 
       if (!platformAdmin && !workspaceAdmin) {
-        showToast("error", "Account not authorized. A platform admin must add you as a workspace admin before signing in.");
+        showToast("error", notAuthorizedMessage(entitlementResponse));
         setIsBusy(false);
         return;
       }

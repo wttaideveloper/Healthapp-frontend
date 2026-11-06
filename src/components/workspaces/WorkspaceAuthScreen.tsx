@@ -71,9 +71,11 @@ function focusFirstInvalidField(errors: FieldErrors): void {
 /**
  * Workspace admin sign-up.
  *
- * Same endpoint and approval notice as before. Field checks run in the form
- * before `auth/register` is called, and toasts auto-dismiss like the rest of
- * the console.
+ * Same endpoint as before. Registration creates an active account straight away: there
+ * is no approval step. Admin Portal access comes from a workspace membership linked to
+ * the account's email address (a legacy purchase or an invitation), and is checked at
+ * sign-in. Field checks run in the form before `auth/register` is called, and toasts
+ * auto-dismiss like the rest of the console.
  */
 export function WorkspaceAuthScreen() {
     const router = useRouter();
@@ -143,14 +145,15 @@ export function WorkspaceAuthScreen() {
     if (isRegistered) {
         return (
             <AuthShell
-                title="Registration submitted"
-                subtitle="Your account requires admin approval before you can sign in."
+                title="Account created"
+                subtitle="You can sign in now. No approval is needed."
                 footer={<p>Redirecting you to sign in…</p>}
             >
                 <div className="grid gap-4" role="status" aria-live="polite">
                     <p className="text-[0.8125rem] leading-relaxed text-[color:var(--text-muted)]">
-                        Registered successfully. A platform admin will review your account. Once it is approved you
-                        can sign in with the email and password you just used.
+                        Sign in with the email and password you just used. If this is the email from your purchase or
+                        workspace invitation, your workspace is linked automatically. If sign-in says your account is
+                        not authorized, contact HealthAge support.
                     </p>
                     <a href={SIGN_IN_PATH} className="ha-btn ha-btn-primary ha-btn-lg w-full">
                         Go to sign in
@@ -173,7 +176,7 @@ export function WorkspaceAuthScreen() {
 
             <AuthShell
                 title="Create your account"
-                subtitle="Register as a workspace administrator. A platform admin approves the account before first sign-in."
+                subtitle="Register with the email address used for your HealthAge purchase or workspace invitation. Your workspace is linked to it automatically; no approval is needed."
                 footer={
                     <p>
                         Already have an account? <AuthLink href="/">Sign in</AuthLink>

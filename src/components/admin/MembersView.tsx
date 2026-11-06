@@ -476,7 +476,7 @@ export function MembersView(props: MembersViewProps) {
               ? "Loading organizations…"
               : isPlatformAdmin
                 ? "No organizations exist yet. Create one from the Workspaces page."
-                : "A platform admin must add you to an organization before it appears here."}
+                : "No organization is linked to this account yet. It appears here once your workspace membership is active: sign in with the email used for your purchase or invitation, or contact HealthAge support."}
           </p>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
